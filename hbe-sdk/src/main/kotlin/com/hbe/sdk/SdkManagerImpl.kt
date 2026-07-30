@@ -2,6 +2,7 @@ package com.hbe.sdk
 
 import com.hbe.api.*
 import com.hbe.api.exception.SdkException
+import com.hbe.infra.JavaNetHttpClient
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.Path
@@ -11,7 +12,8 @@ class SdkManagerImpl(
     private val fileSystem: FileSystem,
     private val processRunner: ProcessRunner,
     private val logger: Logger,
-    private val env: Map<String, String> = System.getenv()
+    private val env: Map<String, String> = System.getenv(),
+    private val networkClient: NetworkClient = JavaNetHttpClient()
 ) : SdkManager {
 
     private var cachedResolution: SdkResolution? = null
@@ -69,11 +71,27 @@ class SdkManagerImpl(
     }
 
     override fun downloadPlatform(apiLevel: Int) {
-        logger.info("SDK platform download not yet implemented", mapOf("apiLevel" to apiLevel.toString()))
+        val installer = createInstaller()
+        val result = installer.installPlatform(apiLevel)
+        if (!result.success) {
+            throw SdkException("Failed to download platform android-$apiLevel: ${result.error}")
+        }
+        logger.info("Platform android-$apiLevel installed", mapOf(
+            "path" to result.installPath.toString(),
+            "cache" to result.fromCache.toString()
+        ))
     }
 
     override fun downloadBuildTools(version: String) {
-        logger.info("Build tools download not yet implemented", mapOf("version" to version))
+        val installer = createInstaller()
+        val result = installer.installBuildTools(version)
+        if (!result.success) {
+            throw SdkException("Failed to download build-tools $version: ${result.error}")
+        }
+        logger.info("Build-tools $version installed", mapOf(
+            "path" to result.installPath.toString(),
+            "cache" to result.fromCache.toString()
+        ))
     }
 
     override fun getSdkPath(): Path? = findSdkRoot()
@@ -403,6 +421,14 @@ class SdkManagerImpl(
             .map { it.fileName.toString() }
             .toList()
             .sortedDescending()
+    }
+
+    private fun createInstaller(): SdkInstaller {
+        val sdkRoot = findSdkRoot()
+            ?: Path.of(System.getProperty("user.home", "."), ".hbe", "sdk")
+        val cacheHome = Path.of(System.getProperty("user.home", "."), ".hbe", "cache")
+        val opts = SdkInstallOptions(sdkRoot = sdkRoot, cacheDir = cacheHome)
+        return SdkInstallerImpl(networkClient, fileSystem, logger, opts)
     }
 
     private fun detectTermux(): Boolean {
