@@ -11,7 +11,7 @@ import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
 import java.util.zip.ZipInputStream
 
-class SdkInstallerImpl(
+open class SdkInstallerImpl(
     private val networkClient: NetworkClient,
     private val fileSystem: FileSystem,
     private val logger: Logger,
