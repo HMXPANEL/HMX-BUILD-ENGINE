@@ -108,14 +108,31 @@ class OsFileSystem : FileSystem {
 
     override fun metadata(path: Path): FileMetadata {
         val attrs = Files.readAttributes(path, BasicFileAttributes::class.java)
+        val sha256 = if (attrs.isRegularFile && attrs.size() > 0L) {
+            computeSha256(path)
+        } else ""
         return FileMetadata(
             path = path.toAbsolutePath().normalize(),
             size = attrs.size(),
             lastModified = attrs.lastModifiedTime().toMillis(),
             isDirectory = attrs.isDirectory,
             isFile = attrs.isRegularFile,
-            isSymbolicLink = attrs.isSymbolicLink
+            isSymbolicLink = attrs.isSymbolicLink,
+            sha256 = sha256
         )
+    }
+
+    private fun computeSha256(path: Path): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        Files.newInputStream(path).use { stream ->
+            val buffer = ByteArray(8192)
+            var bytesRead = stream.read(buffer)
+            while (bytesRead >= 0) {
+                if (bytesRead > 0) digest.update(buffer, 0, bytesRead)
+                bytesRead = stream.read(buffer)
+            }
+        }
+        return digest.digest().joinToString("") { "%02x".format(it) }
     }
 
     private class LockWrapper(
