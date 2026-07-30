@@ -389,8 +389,8 @@ class SdkManagerImpl(
             .filter { Files.isDirectory(it) }
             .map { it.fileName.toString() }
             .filter { it.startsWith("android-") }
-            .mapNotNull { it.removePrefix("android-").toIntOrNull() }
             .toList()
+            .mapNotNull { it.removePrefix("android-").toIntOrNull() }
             .sorted()
     }
 
