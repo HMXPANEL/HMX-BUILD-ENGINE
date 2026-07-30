@@ -47,7 +47,7 @@ class ToolRunnerImpl(
 
         try {
             if (token != null) {
-                return runWithCancellation(toolPath, args, options, processConfig, token, startTime)
+                return runWithCancellation(tool, toolPath, args, options, processConfig, token, startTime)
             }
             val result = processRunner.runWithTimeout(
                 toolPath.toString(), args, options.timeoutMs, processConfig
@@ -67,6 +67,7 @@ class ToolRunnerImpl(
     }
 
     private fun runWithCancellation(
+        toolName: String,
         toolPath: Path,
         args: List<String>,
         options: ToolOptions,
@@ -78,7 +79,8 @@ class ToolRunnerImpl(
         command.addAll(args)
 
         val pb = ProcessBuilder(command)
-        if (processConfig.workingDir != null) pb.directory(processConfig.workingDir.toFile())
+        val workingDir = processConfig.workingDir
+        if (workingDir != null) pb.directory(workingDir.toFile())
         if (processConfig.environment.isNotEmpty()) pb.environment().putAll(processConfig.environment)
         pb.redirectErrorStream(processConfig.redirectErrorStream)
 
@@ -128,11 +130,11 @@ class ToolRunnerImpl(
 
         val error = when {
             cancelled -> ToolError(ToolErrorType.CANCELLED, "Tool execution cancelled by user",
-                details = listOf("Tool: $tool"))
+                details = listOf("Tool: $toolName"))
             timedOut -> ToolError(ToolErrorType.TIMEOUT, "Tool execution timed out after ${options.timeoutMs}ms",
-                details = listOf("Tool: $tool", "Timeout: ${options.timeoutMs}ms"))
-            exitCode != 0 -> ToolError(ToolErrorType.EXECUTION_ERROR, buildToolErrorMessage(tool, exitCode, stderr),
-                details = listOf("Tool: $tool", "Exit code: $exitCode", stderr.lines().firstOrNull { it.isNotBlank() } ?: ""))
+                details = listOf("Tool: $toolName", "Timeout: ${options.timeoutMs}ms"))
+            exitCode != 0 -> ToolError(ToolErrorType.EXECUTION_ERROR, buildToolErrorMessage(toolName, exitCode, stderr),
+                details = listOf("Tool: $toolName", "Exit code: $exitCode", stderr.lines().firstOrNull { it.isNotBlank() } ?: ""))
             else -> null
         }
 
