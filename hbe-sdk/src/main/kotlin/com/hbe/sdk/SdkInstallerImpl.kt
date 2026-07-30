@@ -339,7 +339,7 @@ open class SdkInstallerImpl(
         } catch (_: Exception) {}
     }
 
-    internal fun computeSha256(path: Path): String {
+    internal open fun computeSha256(path: Path): String {
         val digest = MessageDigest.getInstance("SHA-256")
         Files.newInputStream(path).use { stream ->
             val buffer = ByteArray(8192)
