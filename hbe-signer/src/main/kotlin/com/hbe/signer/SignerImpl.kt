@@ -5,8 +5,6 @@ import com.hbe.api.dto.SigningConfig
 import com.hbe.api.exception.SigningException
 import java.nio.file.Files
 import java.nio.file.Path
-import java.security.KeyStore
-import javax.crypto.KeyGenerator
 
 class SignerImpl(
     private val fileSystem: FileSystem,
@@ -151,24 +149,10 @@ class SignerImpl(
         }
     }
 
-    private fun generateKeystoreProgrammatically(path: Path) {
-        try {
-            val keyStore = KeyStore.getInstance("JKS").apply {
-                load(null, debugKeystorePassword.toCharArray())
-            }
-
-            val keyGen = KeyGenerator.getInstance("RSA")
-            keyGen.init(2048)
-
-            val keyStorePass = debugKeystorePassword.toCharArray()
-
-            keyStore.store(Files.newOutputStream(path), keyStorePass)
-        } catch (e: Exception) {
-            throw SigningException(
-                message = "Failed to generate keystore programmatically: ${e.message}",
-                cause = e,
-                suggestion = "Install JDK with keytool support"
-            )
-        }
+    private fun generateKeystoreProgrammatically(@Suppress("UNUSED_PARAMETER") path: Path) {
+        throw SigningException(
+            message = "Keystore generation requires JDK keytool",
+            suggestion = "Install a full JDK (JRE is insufficient). keytool is included in all JDK distributions."
+        )
     }
 }
