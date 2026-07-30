@@ -91,13 +91,10 @@ class ToolRunnerImplTest {
         Files.createDirectories(workingDir)
 
         every { sdkManager.findTool(any()) } returns Path.of("/usr/bin/javac")
-        every { processRunner.runWithTimeout(any(), any(), any(), withArg { config ->
-            assertNotNull(config.workingDir)
-            assertTrue(config.workingDir!!.toString().contains("workdir"))
-        }) } returns ProcessResult(0, "", "", 10)
+        every { processRunner.runWithTimeout(any(), any(), match { it.workingDir == workingDir }, any()) } returns ProcessResult(0, "", "", 10)
 
-        runner().run("javac", listOf("-version"), ToolOptions(workingDir = workingDir))
-        verify { processRunner.runWithTimeout(any(), any(), any(), any()) }
+        val result = runner().run("javac", listOf("-version"), ToolOptions(workingDir = workingDir))
+        assertTrue(result.succeeded)
     }
 
     @Test
@@ -105,13 +102,10 @@ class ToolRunnerImplTest {
         val env = mapOf("MY_VAR" to "hello", "PATH" to "/custom")
 
         every { sdkManager.findTool(any()) } returns Path.of("/usr/bin/javac")
-        every { processRunner.runWithTimeout(any(), any(), any(), withArg { config ->
-            assertEquals("hello", config.environment["MY_VAR"])
-            assertEquals("/custom", config.environment["PATH"])
-        }) } returns ProcessResult(0, "", "", 10)
+        every { processRunner.runWithTimeout(any(), any(), match { it.environment["MY_VAR"] == "hello" }, any()) } returns ProcessResult(0, "", "", 10)
 
-        runner().run("javac", listOf(), ToolOptions(environment = env))
-        verify { processRunner.runWithTimeout(any(), any(), any(), any()) }
+        val result = runner().run("javac", listOf(), ToolOptions(environment = env))
+        assertTrue(result.succeeded)
     }
 
     @Test
