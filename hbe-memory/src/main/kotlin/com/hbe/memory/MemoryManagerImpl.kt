@@ -4,15 +4,20 @@ import com.hbe.api.MemoryMonitor
 import com.hbe.api.MemoryMonitor.MemoryPressure
 import com.hbe.api.Phase
 import com.hbe.api.Logger
+import java.lang.management.ManagementFactory
 
 class MemoryManagerImpl(
     private val logger: Logger,
-    private val totalMemoryBytes: Long = Runtime.getRuntime().maxMemory()
+    private val totalMemoryBytes: Long = probeSystemTotalMemory()
 ) : MemoryMonitor {
 
     private var phaseRegistry = mutableListOf<Phase>()
 
     override fun getAvailableMemoryBytes(): Long {
+        val osBean = ManagementFactory.getOperatingSystemMXBean()
+        if (osBean is com.sun.management.OperatingSystemMXBean) {
+            return osBean.freeMemorySize
+        }
         val runtime = Runtime.getRuntime()
         val maxMemory = runtime.maxMemory()
         val totalMemory = runtime.totalMemory()
@@ -26,6 +31,16 @@ class MemoryManagerImpl(
 
     override fun isLowMemory(): Boolean {
         return getAvailableMemoryBytes() < 512L * 1024 * 1024
+    }
+
+    companion object {
+        private fun probeSystemTotalMemory(): Long {
+            val osBean = ManagementFactory.getOperatingSystemMXBean()
+            if (osBean is com.sun.management.OperatingSystemMXBean) {
+                return osBean.totalMemorySize
+            }
+            return Runtime.getRuntime().maxMemory()
+        }
     }
 
     override fun getPressure(): MemoryPressure {
