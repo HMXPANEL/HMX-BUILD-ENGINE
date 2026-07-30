@@ -6,7 +6,7 @@ import com.hbe.core.ConfigLoader
 import com.hbe.core.DefaultHbeEngine
 import com.hbe.core.DefaultLogger
 import com.hbe.core.PhaseExecutor
-import com.hbe.diag.DiagnosticsImpl
+import com.hbe.diagnostics.DiagnosticsImpl
 import com.hbe.infra.JavaNetHttpClient
 import com.hbe.infra.OsFileSystem
 import com.hbe.infra.OsProcessRunner

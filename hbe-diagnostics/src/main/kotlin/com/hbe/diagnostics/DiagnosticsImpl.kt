@@ -1,4 +1,4 @@
-package com.hbe.diag
+package com.hbe.diagnostics
 
 import com.hbe.api.*
 import com.hbe.api.dto.BuildError
