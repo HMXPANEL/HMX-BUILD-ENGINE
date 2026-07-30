@@ -390,6 +390,7 @@ class SdkManagerImpl(
             .map { it.fileName.toString() }
             .filter { it.startsWith("android-") }
             .mapNotNull { it.removePrefix("android-").toIntOrNull() }
+            .toList()
             .sorted()
     }
 
@@ -400,6 +401,7 @@ class SdkManagerImpl(
         return Files.list(btDir)
             .filter { Files.isDirectory(it) }
             .map { it.fileName.toString() }
+            .toList()
             .sortedDescending()
     }
 
