@@ -4,7 +4,6 @@ plugins {
 
 dependencies {
     implementation(project(":hbe-api"))
-    implementation(project(":hbe-core"))
     implementation(project(":hbe-cache"))
     implementation(libs.kotlin.stdlib)
     implementation(libs.coroutines.core)

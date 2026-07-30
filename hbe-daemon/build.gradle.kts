@@ -10,7 +10,6 @@ application {
 dependencies {
     implementation(project(":hbe-api"))
     implementation(project(":hbe-core"))
-    implementation(project(":hbe-cli"))
     implementation(libs.kotlin.stdlib)
     implementation(libs.coroutines.core)
     implementation(libs.coroutines.test)
