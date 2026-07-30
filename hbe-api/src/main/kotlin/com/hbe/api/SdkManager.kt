@@ -10,6 +10,10 @@ interface SdkManager {
     fun getSdkPath(): Path?
     fun getJdkPath(): Path?
     fun getToolPath(toolName: String): Path?
+    fun findTool(toolName: String): Path?
+    fun listInstalledSdk(): SdkEnvironment
+    fun listInstalledTools(): List<ToolInfo>
+    fun validateEnvironment(): EnvironmentReport
 }
 
 data class SdkResolution(
@@ -33,4 +37,33 @@ data class SdkDiagnosis(
     val ndkFound: Boolean = false,
     val issues: List<String> = emptyList(),
     val recommendations: List<String> = emptyList()
+)
+
+data class ToolInfo(
+    val name: String,
+    val displayName: String,
+    val version: String?,
+    val path: Path?,
+    val available: Boolean
+)
+
+data class SdkEnvironment(
+    val sdkRoot: Path?,
+    val platforms: List<Int>,
+    val buildToolsVersions: List<String>,
+    val platformToolsAvailable: Boolean,
+    val ndkAvailable: Boolean
+)
+
+data class EnvironmentReport(
+    val osName: String,
+    val osArch: String,
+    val osVersion: String,
+    val isTermux: Boolean,
+    val isGitHubActions: Boolean,
+    val java: ToolInfo,
+    val androidSdk: SdkEnvironment?,
+    val tools: Map<String, ToolInfo>,
+    val errors: List<String>,
+    val warnings: List<String>
 )

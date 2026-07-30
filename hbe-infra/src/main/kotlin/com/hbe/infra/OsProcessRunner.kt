@@ -102,6 +102,15 @@ class OsProcessRunner : ProcessRunner {
     }
 
     override fun findTool(name: String): Path? {
+        // If the name is already an absolute path, check it directly
+        val path = Path.of(name)
+        if (path.isAbsolute()) {
+            if (Files.isExecutable(path)) return path.toAbsolutePath()
+            val pathExe = Path.of("$name.exe")
+            if (pathExe.isAbsolute() && Files.isExecutable(pathExe)) return pathExe.toAbsolutePath()
+            return null
+        }
+
         // Search PATH
         val pathEnv = System.getenv("PATH") ?: return null
         val pathDirs = pathEnv.split(File.pathSeparator)
