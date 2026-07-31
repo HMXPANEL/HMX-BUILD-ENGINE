@@ -23,11 +23,28 @@ class HbeCliRunner(private val args: Array<String>) {
     private val processRunner = OsProcessRunner()
     private val networkClient = JavaNetHttpClient()
     private val configLoader = ConfigLoader(logger)
-    private val phaseExecutor = PhaseExecutor(logger)
+    private val eventBus = com.hbe.core.event.InMemoryBuildEventBus()
+    private val sdkManager = com.hbe.sdk.SdkManagerImpl(fileSystem, processRunner, logger, eventBus = eventBus)
+    private val toolRunner = com.hbe.core.event.EventEmittingToolRunner(
+        com.hbe.sdk.ToolRunnerImpl(sdkManager, processRunner, logger), eventBus
+    )
     private val diagnostics = DiagnosticsImpl(
-        sdkManager = com.hbe.sdk.SdkManagerImpl(fileSystem, processRunner, logger),
+        sdkManager = sdkManager,
         logger = logger
     )
+    private val pipeline = com.hbe.core.pipeline.DefaultBuildPipeline(
+        sdkManager = sdkManager,
+        resourceCompiler = com.hbe.resources.ResourceCompilerImpl(sdkManager, fileSystem, toolRunner, logger),
+        sourceCompiler = com.hbe.compiler.SourceCompilerImpl(sdkManager, fileSystem, toolRunner, logger),
+        dexEngine = com.hbe.dex.DexEngineImpl(sdkManager, fileSystem, toolRunner, logger),
+        packager = com.hbe.packager.PackagerImpl(fileSystem, toolRunner, logger),
+        signer = com.hbe.signer.SignerImpl(fileSystem, toolRunner, logger),
+        toolRunner = toolRunner,
+        fileSystem = fileSystem,
+        eventBus = eventBus,
+        logger = logger
+    )
+    private val phaseExecutor = PhaseExecutor(logger, pipeline)
     private val engine = DefaultHbeEngine(configLoader, phaseExecutor, diagnostics)
 
     fun run() {

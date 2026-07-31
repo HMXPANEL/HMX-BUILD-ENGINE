@@ -13,7 +13,8 @@ class SdkManagerImpl(
     private val processRunner: ProcessRunner,
     private val logger: Logger,
     private val env: Map<String, String> = System.getenv(),
-    private val networkClient: NetworkClient = JavaNetHttpClient()
+    private val networkClient: NetworkClient = JavaNetHttpClient(),
+    private val eventBus: com.hbe.api.event.BuildEventBus? = null
 ) : SdkManager {
 
     private var cachedResolution: SdkResolution? = null
@@ -428,7 +429,7 @@ class SdkManagerImpl(
             ?: Path.of(System.getProperty("user.home", "."), ".hbe", "sdk")
         val cacheHome = Path.of(System.getProperty("user.home", "."), ".hbe", "cache")
         val opts = SdkInstallOptions(sdkRoot = sdkRoot, cacheDir = cacheHome)
-        return SdkInstallerImpl(networkClient, fileSystem, logger, opts)
+        return SdkInstallerImpl(networkClient, fileSystem, logger, opts, eventBus)
     }
 
     private fun detectTermux(): Boolean {

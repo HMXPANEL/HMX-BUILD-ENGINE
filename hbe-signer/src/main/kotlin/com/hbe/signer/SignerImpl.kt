@@ -8,7 +8,7 @@ import java.nio.file.Path
 
 class SignerImpl(
     private val fileSystem: FileSystem,
-    private val processRunner: ProcessRunner,
+    private val toolRunner: ToolRunner,
     private val logger: Logger
 ) : Signer {
 
@@ -32,16 +32,28 @@ class SignerImpl(
             sizeBytes = fileSystem.size(apkFile),
             v1Signed = config.type != SigningConfig.SigningType.NONE,
             v2Signed = config.type != SigningConfig.SigningType.NONE,
-            v3Signed = false
+            v3Signed = config.type != SigningConfig.SigningType.NONE
         )
     }
 
     override fun verify(apkFile: Path): SignatureInfo {
-        // Will use apksigner verify when available
+        val result = toolRunner.run("apksigner", listOf("verify", "--print-certs", apkFile.toString()))
+        if (!result.succeeded) {
+            return SignatureInfo(isSigned = false)
+        }
+
+        val output = result.stdout + "\n" + result.stderr
         return SignatureInfo(
-            isSigned = false,
-            v1Signed = false,
-            v2Signed = false
+            isSigned = true,
+            v1Signed = output.contains("v1 scheme (JAR signing): true"),
+            v2Signed = output.contains("v2 scheme (APK Signature Scheme v2): true"),
+            v3Signed = output.contains("v3 scheme (APK Signature Scheme v3): true"),
+            signerSubject = output.lines()
+                .firstOrNull { it.contains("certificate DN:") }
+                ?.substringAfter("certificate DN:")?.trim(),
+            signatureAlgorithm = output.lines()
+                .firstOrNull { it.contains("signature algorithm:", ignoreCase = true) }
+                ?.substringAfter("algorithm:", ignoreCase = true)?.trim()
         )
     }
 
@@ -53,30 +65,23 @@ class SignerImpl(
         logger.info("Generating debug keystore", mapOf("path" to keystorePath.toString()))
         fileSystem.createDirectories(keystorePath.parent)
 
-        // Use keytool if available
-        val keytoolPath = processRunner.findTool("keytool")
-        if (keytoolPath != null) {
-            val result = processRunner.run(keytoolPath.toString(), listOf(
-                "-genkey", "-v",
-                "-keystore", keystorePath.toString(),
-                "-alias", debugKeyAlias,
-                "-keyalg", "RSA",
-                "-keysize", "2048",
-                "-validity", "10000",
-                "-dname", "CN=Android Debug, O=Android, C=US",
-                "-storepass", debugKeystorePassword,
-                "-keypass", debugKeyPassword
-            ))
+        val result = toolRunner.run("keytool", listOf(
+            "-genkey", "-v",
+            "-keystore", keystorePath.toString(),
+            "-alias", debugKeyAlias,
+            "-keyalg", "RSA",
+            "-keysize", "2048",
+            "-validity", "10000",
+            "-dname", "CN=Android Debug, O=Android, C=US",
+            "-storepass", debugKeystorePassword,
+            "-keypass", debugKeyPassword
+        ))
 
-            if (result.isFailure) {
-                throw SigningException(
-                    message = "Failed to generate debug keystore: ${result.stderr}",
-                    suggestion = "Ensure keytool is available in your JDK installation"
-                )
-            }
-        } else {
-            // Programmatic keystore generation as fallback
-            generateKeystoreProgrammatically(keystorePath)
+        if (!result.succeeded) {
+            throw SigningException(
+                message = "Failed to generate debug keystore: ${result.stderr}",
+                suggestion = "Ensure keytool is available in your JDK installation"
+            )
         }
 
         return keystorePath
@@ -121,13 +126,6 @@ class SignerImpl(
         keyAlias: String,
         keyPass: String
     ) {
-        val apksignerPath = processRunner.findTool("apksigner")
-        if (apksignerPath == null) {
-            logger.warn("apksigner not found — APK will not be signed",
-                mapOf("suggestion" to "Install Android SDK build-tools"))
-            return
-        }
-
         val args = mutableListOf(
             "sign",
             "--ks", keystore.toString(),
@@ -139,20 +137,13 @@ class SignerImpl(
             "--v3-signing-enabled", "true",
             apkFile.toString()
         )
-        val result = processRunner.run(apksignerPath.toString(), args)
+        val result = toolRunner.run("apksigner", args)
 
-        if (result.isFailure) {
+        if (!result.succeeded) {
             throw SigningException(
                 message = "apksigner failed: ${result.stderr}",
                 suggestion = "Check keystore credentials and try again"
             )
         }
-    }
-
-    private fun generateKeystoreProgrammatically(@Suppress("UNUSED_PARAMETER") path: Path) {
-        throw SigningException(
-            message = "Keystore generation requires JDK keytool",
-            suggestion = "Install a full JDK (JRE is insufficient). keytool is included in all JDK distributions."
-        )
     }
 }

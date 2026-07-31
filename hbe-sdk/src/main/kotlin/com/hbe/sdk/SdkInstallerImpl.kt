@@ -1,6 +1,9 @@
 package com.hbe.sdk
 
 import com.hbe.api.*
+import com.hbe.api.event.DownloadFinishedEvent
+import com.hbe.api.event.DownloadProgressEvent
+import com.hbe.api.event.DownloadStartedEvent
 import com.hbe.api.exception.SdkException
 import java.io.InputStream
 import java.net.HttpURLConnection
@@ -18,7 +21,8 @@ open class SdkInstallerImpl(
     private val options: SdkInstallOptions = SdkInstallOptions(
         sdkRoot = Path.of(System.getProperty("user.home", "."), ".hbe", "sdk"),
         cacheDir = Path.of(System.getProperty("user.home", "."), ".hbe", "cache")
-    )
+    ),
+    private val eventBus: BuildEventBus? = null
 ) : SdkInstaller {
 
     private val cacheDir: Path = options.cacheDir.resolve("downloads")
@@ -110,12 +114,29 @@ open class SdkInstallerImpl(
         var wasResumed = false
         var bytesDownloaded = 0L
 
+        eventBus?.publish(DownloadStartedEvent(
+            buildId = "",
+            metadata = mapOf("url" to url, "component" to "$componentType-$version")
+        ))
+
+        val progressCallback: ProgressCallback? = if (callback != null || eventBus != null) {
+            ProgressCallback { downloaded: Long, total: Long? ->
+                callback?.onProgress(downloaded, total)
+                val progress = total?.let { if (it > 0) downloaded.toFloat() / it else 0f } ?: 0f
+                eventBus?.publish(DownloadProgressEvent(
+                    buildId = "",
+                    progress = progress,
+                    metadata = mapOf("url" to url, "bytes" to downloaded, "total" to (total ?: 0))
+                ))
+            }
+        } else null
+
         if (checkCacheValid(zipPath)) {
             logger.info("Using cached download", mapOf("file" to fileName))
             fromCache = true
         } else {
-            callback?.onProgress(0, null)
-            val downloadResult = downloadWithResume(url, zipPath, callback, token)
+            progressCallback?.onProgress(0, null)
+            val downloadResult = downloadWithResume(url, zipPath, progressCallback, token)
             bytesDownloaded = downloadResult.bytesDownloaded
             wasResumed = downloadResult.wasResumed
         }
@@ -123,7 +144,7 @@ open class SdkInstallerImpl(
         checkCancelled(token)
 
         if (options.verifySha256) {
-            callback?.onProgress(bytesDownloaded, bytesDownloaded)
+            progressCallback?.onProgress(bytesDownloaded, bytesDownloaded)
             val sha256 = downloadSha256(url, sha256Path, token)
             if (sha256 != null) {
                 verifySha256(zipPath, sha256)
@@ -131,7 +152,7 @@ open class SdkInstallerImpl(
         }
 
         checkCancelled(token)
-        callback?.onProgress(bytesDownloaded, bytesDownloaded)
+        progressCallback?.onProgress(bytesDownloaded, bytesDownloaded)
 
         Files.createDirectories(targetDir.parent)
         extractZip(zipPath, targetDir)
@@ -139,7 +160,13 @@ open class SdkInstallerImpl(
         updateManifest(componentType, version)
         writeCacheManifestEntry(fileName)
 
-        callback?.onProgress(bytesDownloaded, bytesDownloaded)
+        progressCallback?.onProgress(bytesDownloaded, bytesDownloaded)
+
+        eventBus?.publish(DownloadFinishedEvent(
+            buildId = "",
+            metadata = mapOf("url" to url, "component" to "$componentType-$version",
+                "bytes" to bytesDownloaded, "fromCache" to fromCache, "wasResumed" to wasResumed)
+        ))
 
         return SdkInstallResult(
             success = true,

@@ -9,7 +9,7 @@ import javax.tools.ToolProvider
 class SourceCompilerImpl(
     private val sdkManager: SdkManager,
     private val fileSystem: FileSystem,
-    private val processRunner: ProcessRunner,
+    private val toolRunner: ToolRunner,
     private val logger: Logger
 ) : SourceCompiler {
 
@@ -18,7 +18,6 @@ class SourceCompilerImpl(
 
         fileSystem.createDirectories(outputDir)
 
-        // Try JDK Compiler API first
         val compiler = ToolProvider.getSystemJavaCompiler()
         if (compiler != null) {
             return compileWithJdkApi(compiler, sources, classpath, outputDir)
@@ -38,9 +37,35 @@ class SourceCompilerImpl(
         if (sources.isEmpty()) return emptySet()
 
         fileSystem.createDirectories(outputDir)
-        logger.info("Kotlin compilation not yet implemented — will invoke kotlinc",
-            mapOf("count" to sources.size.toString(), "compose" to useCompose.toString()))
-        return emptySet()
+        logger.info("Compiling Kotlin sources", mapOf(
+            "count" to sources.size.toString(),
+            "compose" to useCompose.toString(),
+            "kotlinVersion" to kotlinVersion
+        ))
+
+        if (useCompose) {
+            logger.warn("Compose compiler plugin not bundled — compiling without it",
+                mapOf("suggestion" to "Add the Compose compiler plugin for composable code generation"))
+        }
+
+        val args = mutableListOf(
+            "-d", outputDir.toString(),
+            "-cp", classpath.toJvmClasspath(),
+            "-jvm-target", "17"
+        )
+        args.addAll(sources.map { it.toString() })
+
+        val result = toolRunner.run("kotlinc", args)
+        if (!result.succeeded) {
+            throw CompilerException(
+                message = "Kotlin compilation failed",
+                phase = "kotlinc",
+                errors = parseKotlincErrors(result.stderr),
+                suggestion = "Fix the compilation errors and rebuild"
+            )
+        }
+
+        return fileSystem.walkFiles(outputDir, "*.class").toSet()
     }
 
     override fun batchCompileJava(
@@ -77,8 +102,9 @@ class SourceCompilerImpl(
         val batches = allSources.chunked(batchSize)
 
         for ((index, batch) in batches.withIndex()) {
+            val batchOutput = outputDir.resolve("batch-$index")
             val batchClassFiles = compileKotlin(
-                batch.toSet(), classpath, outputDir, useCompose, kotlinVersion
+                batch.toSet(), classpath, batchOutput, useCompose, kotlinVersion
             )
             classFiles.addAll(batchClassFiles)
         }
@@ -151,11 +177,6 @@ class SourceCompilerImpl(
         classpath: Classpath,
         outputDir: Path
     ): Set<Path> {
-        val javacPath = sdkManager.getJdkPath()?.resolve("bin")?.resolve("javac")
-            ?: processRunner.findTool("javac")
-            ?: throw CompilerException("javac not found", phase = "javac",
-                suggestion = "Install JDK 17+ or set JAVA_HOME")
-
         val args = mutableListOf(
             "-d", outputDir.toString(),
             "-cp", classpath.toJvmClasspath(),
@@ -164,9 +185,8 @@ class SourceCompilerImpl(
         )
         args.addAll(sources.map { it.toString() })
 
-        val result = processRunner.run(javacPath.toString(), args)
-
-        if (result.isFailure) {
+        val result = toolRunner.run("javac", args)
+        if (!result.succeeded) {
             throw CompilerException(
                 message = "Java compilation failed",
                 phase = "javac",
@@ -187,6 +207,22 @@ class SourceCompilerImpl(
                     line = parts[1].trim().toIntOrNull() ?: 0,
                     column = parts.getOrNull(2)?.trim()?.toIntOrNull() ?: 0,
                     message = parts.drop(3).joinToString(":").trim()
+                )
+            } else null
+        }
+    }
+
+    private fun parseKotlincErrors(stderr: String): List<CompilerError> {
+        return stderr.lines().filter { it.contains(".kt:") }.mapNotNull { line ->
+            val marker = line.indexOf(".kt:")
+            if (marker >= 0) {
+                val file = line.substring(0, marker + 3)
+                val after = line.substring(marker + 4).split(":")
+                CompilerError(
+                    file = file.trim(),
+                    line = after.getOrNull(0)?.trim()?.toIntOrNull() ?: 0,
+                    column = after.getOrNull(1)?.trim()?.toIntOrNull() ?: 0,
+                    message = after.drop(2).joinToString(":").trim()
                 )
             } else null
         }

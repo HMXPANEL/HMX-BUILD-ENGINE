@@ -1,6 +1,7 @@
 package com.hbe.packager
 
 import com.hbe.api.*
+import com.hbe.api.exception.BuildException
 import java.io.BufferedOutputStream
 import java.io.FileOutputStream
 import java.nio.file.Files
@@ -12,6 +13,7 @@ import java.util.zip.ZipOutputStream
 
 class PackagerImpl(
     private val fileSystem: FileSystem,
+    private val toolRunner: ToolRunner,
     private val logger: Logger
 ) : Packager {
 
@@ -73,9 +75,21 @@ class PackagerImpl(
 
     override fun zipalign(apkFile: Path): Path {
         val alignedFile = apkFile.parent.resolve(apkFile.fileName.toString().replace(".apk", "-aligned.apk"))
-        fileSystem.copy(apkFile, alignedFile)
-        // zipalign will be implemented properly when SDK tools are available
-        logger.info("APK aligned (placeholder)", mapOf("path" to alignedFile.toString()))
+        if (fileSystem.exists(alignedFile)) {
+            fileSystem.delete(alignedFile)
+        }
+
+        val result = toolRunner.run("zipalign", listOf("-f", "4", apkFile.toString(), alignedFile.toString()))
+        if (!result.succeeded) {
+            throw BuildException(
+                message = "zipalign failed",
+                errorCode = "ZIPALIGN_ERROR",
+                suggestion = "Ensure the APK is a valid zip with 4-byte aligned uncompressed entries",
+                details = result.stderr.lines().filter { it.isNotBlank() }.take(10)
+            )
+        }
+
+        logger.info("APK aligned", mapOf("path" to alignedFile.toString()))
         return alignedFile
     }
 
