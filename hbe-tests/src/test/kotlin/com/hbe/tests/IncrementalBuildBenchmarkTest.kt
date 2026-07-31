@@ -136,7 +136,8 @@ class IncrementalBuildBenchmarkTest {
     private fun editSource(projectDir: Path) {
         val src = projectDir.resolve("src/main/java/com/hbe/testapp/MainActivity.java")
         val original = Files.readString(src)
-        Files.writeString(src, original + "\n    public void onResume() {}\n")
+        val idx = original.lastIndexOf('}')
+        Files.writeString(src, original.substring(0, idx) + "\n    public void onResume() {}\n" + original.substring(idx))
     }
 
     private fun createProject(): Path {
