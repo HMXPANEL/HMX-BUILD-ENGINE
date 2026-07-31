@@ -59,6 +59,83 @@ data class BuildGraph(
         return sorted
     }
 
+    /** Topological levels: each level contains nodes whose dependencies are all in earlier levels.
+     *  Nodes within a level are mutually independent and may run in parallel. */
+    fun levels(): List<List<BuildNode>> {
+        val adjacency = mutableMapOf<String, MutableList<String>>()
+        val inDegree = mutableMapOf<String, Int>()
+        for (node in nodes) {
+            adjacency[node.id] = mutableListOf()
+            inDegree[node.id] = 0
+        }
+        for (edge in edges) {
+            adjacency.getOrPut(edge.from) { mutableListOf() }.add(edge.to)
+            inDegree[edge.to] = (inDegree[edge.to] ?: 0) + 1
+        }
+
+        val nodeMap = nodes.associateBy { it.id }
+        val ready = java.util.ArrayDeque<String>()
+        for ((id, degree) in inDegree) if (degree == 0) ready.add(id)
+
+        val levels = mutableListOf<List<BuildNode>>()
+        val visited = mutableSetOf<String>()
+        while (ready.isNotEmpty()) {
+            val level = mutableListOf<BuildNode>()
+            val next = mutableListOf<String>()
+            while (ready.isNotEmpty()) {
+                val id = ready.poll()
+                if (id in visited) continue
+                visited.add(id)
+                nodeMap[id]?.let { level.add(it) }
+                for (neighbor in adjacency[id].orEmpty()) {
+                    inDegree[neighbor] = (inDegree[neighbor] ?: 1) - 1
+                    if (inDegree[neighbor] == 0) next.add(neighbor)
+                }
+            }
+            levels.add(level)
+            ready.addAll(next)
+        }
+
+        if (visited.size != nodes.size) {
+            throw IllegalStateException("Graph contains a cycle — cannot compute levels")
+        }
+        return levels
+    }
+
+    /** Renders the dependency graph as an indented text tree. */
+    fun visualize(): String {
+        val sorted = topologicalSort()
+        val byId = nodes.associateBy { it.id }
+        val children = mutableMapOf<String, MutableList<String>>()
+        val parents = mutableMapOf<String, MutableList<String>>()
+        for (node in nodes) {
+            children[node.id] = mutableListOf()
+            parents[node.id] = mutableListOf()
+        }
+        for (edge in edges) {
+            children.getOrPut(edge.from) { mutableListOf() }.add(edge.to)
+            parents.getOrPut(edge.to) { mutableListOf() }.add(edge.from)
+        }
+
+        val roots = sorted.map { it.id }.filter { parents[it].orEmpty().isEmpty() }
+        val sb = StringBuilder()
+        sb.append("build-graph\n")
+
+        fun render(nodeId: String, depth: Int) {
+            val node = byId[nodeId] ?: return
+            val indent = if (depth == 0) "  " else "  " + "  ".repeat(depth)
+            val marker = if (depth == 0) "|- " else "`-> "
+            sb.append(indent).append(marker).append(node.label.ifBlank { node.id })
+                .append(" [").append(node.type.name).append("]\n")
+            for (child in children[nodeId].orEmpty().sorted()) {
+                render(child, depth + 1)
+            }
+        }
+
+        for (root in roots.sorted()) render(root, 0)
+        return sb.toString()
+    }
+
     fun findCycle(): List<String>? {
         val visiting = mutableSetOf<String>()
         val visited = mutableSetOf<String>()

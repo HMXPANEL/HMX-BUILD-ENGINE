@@ -9,16 +9,21 @@ class CacheManagerImpl(
     private val maxSizeBytes: Long = 2L * 1024 * 1024 * 1024
 ) : CacheManager {
 
-    private val entryAccess = mutableMapOf<String, AccessRecord>()
+    private val entryAccess = java.util.concurrent.ConcurrentHashMap<String, AccessRecord>()
+    private val hitCounter = java.util.concurrent.atomic.AtomicLong()
+    private val missCounter = java.util.concurrent.atomic.AtomicLong()
+    private val evictionCounter = java.util.concurrent.atomic.AtomicLong()
 
     override fun get(key: ArtifactKey): CacheResult? {
         val cachePath = resolveCachePath(key)
         if (!fileSystem.exists(cachePath)) {
+            missCounter.incrementAndGet()
             return null
         }
 
         val meta = fileSystem.metadata(cachePath)
         entryAccess[key.toCachePath()] = AccessRecord(System.currentTimeMillis())
+        hitCounter.incrementAndGet()
 
         return CacheResult(
             key = key,
@@ -65,6 +70,7 @@ class CacheManagerImpl(
             val size = fileSystem.size(path)
             fileSystem.delete(path)
             entryAccess.remove(key)
+            evictionCounter.incrementAndGet()
             currentSize -= size
         }
     }
@@ -76,6 +82,7 @@ class CacheManagerImpl(
                 val path = cacheDir.resolve(key)
                 fileSystem.delete(path)
                 entryAccess.remove(key)
+                evictionCounter.incrementAndGet()
             }
     }
 
@@ -83,7 +90,10 @@ class CacheManagerImpl(
         return CacheStats(
             totalEntries = entryAccess.size.toLong(),
             totalSizeBytes = computeTotalSize(),
-            maxSizeBytes = maxSizeBytes
+            maxSizeBytes = maxSizeBytes,
+            hitCount = hitCounter.get(),
+            missCount = missCounter.get(),
+            evictionCount = evictionCounter.get()
         )
     }
 

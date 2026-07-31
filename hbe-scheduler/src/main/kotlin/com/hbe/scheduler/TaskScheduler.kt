@@ -1,61 +1,69 @@
 package com.hbe.scheduler
 
 import com.hbe.api.*
-import com.hbe.api.dto.BuildResult
 import com.hbe.api.dto.PhaseTiming
-import com.hbe.api.dto.BuildError
 import com.hbe.graph.BuildGraph
 import com.hbe.graph.BuildNode
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.runBlocking
 
 class TaskScheduler(
-    private val cacheManager: CacheManager,
     private val memoryMonitor: MemoryMonitor,
     private val logger: Logger
 ) {
+    /** Builds an execution plan from the task graph: one batch per topological level,
+     *  where nodes within a level are dependency-independent and may run in parallel. */
     fun schedule(graph: BuildGraph, context: BuildContext): ExecutionPlan {
-        val sortedNodes = graph.topologicalSort()
-        val batches = createBatches(sortedNodes, context.config.defaultRamBudgetMb)
-
+        val levels = graph.levels()
+        val batches = levels.map { level ->
+            ExecutionBatch(
+                nodes = level,
+                estimatedMemoryMb = level.sumOf { it.estimatedMemoryMb },
+                isParallel = level.size > 1
+            )
+        }
         return ExecutionPlan(batches = batches)
     }
 
-    fun execute(context: BuildContext, plan: ExecutionPlan): List<PhaseTiming> {
+    /** Runs the plan. Batches execute strictly in order; nodes within a batch run in
+     *  parallel (when the batch is parallel-safe and EngineConfig.parallelPhases is
+     *  enabled) or sequentially. */
+    fun execute(
+        context: BuildContext,
+        plan: ExecutionPlan,
+        executor: (BuildNode) -> PhaseTiming
+    ): List<PhaseTiming> {
         val timings = mutableListOf<PhaseTiming>()
 
         for (batch in plan.batches) {
             if (context.cancellationToken.isCancelled) break
 
-            for (node in batch.nodes) {
-                context.cancellationToken.throwIfCancelled()
+            val parallel = batch.isParallel && context.config.parallelPhases
+            logger.info("Executing batch", mapOf(
+                "nodes" to batch.nodes.joinToString { it.id },
+                "parallel" to parallel.toString()
+            ))
 
-                logger.info("Executing phase: ${node.label}", mapOf("node" to node.id))
-                memoryMonitor.releaseMemory()
+            if (parallel) {
+                val batchTimings = runBlocking {
+                    batch.nodes
+                        .map { node -> async(Dispatchers.IO) { executor(node) } }
+                        .awaitAll()
+                }
+                timings.addAll(batchTimings)
+            } else {
+                for (node in batch.nodes) {
+                    context.cancellationToken.throwIfCancelled()
+                    timings.add(executor(node))
+                }
             }
+
+            memoryMonitor.releaseMemory()
         }
 
         return timings
-    }
-
-    private fun createBatches(nodes: List<BuildNode>, ramBudget: Int): List<ExecutionBatch> {
-        val batches = mutableListOf<ExecutionBatch>()
-        val currentBatch = mutableListOf<BuildNode>()
-        var currentMemory = 0L
-
-        for (node in nodes) {
-            if (currentMemory + node.estimatedMemoryMb > ramBudget && currentBatch.isNotEmpty()) {
-                batches.add(ExecutionBatch(currentBatch.toList(), currentMemory))
-                currentBatch.clear()
-                currentMemory = 0L
-            }
-            currentBatch.add(node)
-            currentMemory += node.estimatedMemoryMb
-        }
-
-        if (currentBatch.isNotEmpty()) {
-            batches.add(ExecutionBatch(currentBatch.toList(), currentMemory))
-        }
-
-        return batches
     }
 }
 

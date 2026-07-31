@@ -7,14 +7,15 @@ import com.hbe.api.dto.PhaseTiming
 
 class PhaseExecutor(
     private val logger: Logger,
-    private val pipeline: BuildPipeline? = null
+    private val pipeline: BuildPipeline? = null,
+    private val incrementalPipeline: BuildPipeline? = null
 ) {
     fun executeBuild(context: BuildContext): BuildResult {
         logger.info("Build started", mapOf("buildId" to context.buildId, "project" to context.request.projectDir))
 
-        val pipeline = this.pipeline
-        if (pipeline != null) {
-            return pipeline.execute(context)
+        val target = if (context.request.incremental) incrementalPipeline ?: pipeline else pipeline
+        if (target != null) {
+            return target.execute(context)
         }
 
         // Placeholder fallback when no pipeline is wired (e.g. older integration tests)
