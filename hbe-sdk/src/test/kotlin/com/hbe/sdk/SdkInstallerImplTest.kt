@@ -121,6 +121,10 @@ class SdkInstallerImplTest {
     fun `SHA-256 mismatch fails installation`() {
         val sdkRoot = tempDir.resolve("sdk")
         val cacheDir = tempDir.resolve("cache")
+        every { networkClient.get(any()) } returns HttpResponse(
+            statusCode = 200,
+            body = "1111111111111111111111111111111111111111111111111111111111111111".toByteArray()
+        )
         val installer = makeFakeDownloader(
             SdkInstallOptions(sdkRoot = sdkRoot, cacheDir = cacheDir, verifySha256 = true),
             zipContent = mapOf("c.txt" to "data"),

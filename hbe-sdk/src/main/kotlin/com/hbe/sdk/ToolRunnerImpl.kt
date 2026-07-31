@@ -171,7 +171,19 @@ class ToolRunnerImpl(
                 details = listOf("Exit code: ${result.exitCode}")
             )
         } else null
-        return ToolResult(result.exitCode, result.stdout, result.stderr, result.durationMs, succeeded, error)
+        return ToolResult(
+            result.exitCode,
+            normalizeOutput(result.stdout),
+            normalizeOutput(result.stderr),
+            result.durationMs,
+            succeeded,
+            error
+        )
+    }
+
+    private fun normalizeOutput(output: String): String {
+        if (output.isEmpty() || output.endsWith("\n")) return output
+        return output + "\n"
     }
 
     private fun buildToolErrorMessage(tool: String, exitCode: Int, stderr: String): String {

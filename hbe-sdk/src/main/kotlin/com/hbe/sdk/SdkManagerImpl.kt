@@ -287,11 +287,11 @@ class SdkManagerImpl(
         if (javaPath != null) {
             val resolved = javaPath.toAbsolutePath().normalize()
             val jdkDir = resolved.parent?.parent
-            if (jdkDir != null && Files.isDirectory(jdkDir.resolve("bin").resolve("javac"))) {
+            if (jdkDir != null && Files.isRegularFile(jdkDir.resolve("bin").resolve("javac"))) {
                 return jdkDir
             }
             val jdkDirLib = resolved.parent?.parent?.parent
-            if (jdkDirLib != null && Files.isDirectory(jdkDirLib.resolve("bin").resolve("javac"))) {
+            if (jdkDirLib != null && Files.isRegularFile(jdkDirLib.resolve("bin").resolve("javac"))) {
                 return jdkDirLib
             }
         }
@@ -441,9 +441,9 @@ class SdkManagerImpl(
     }
 
     companion object {
-        private val JAVA_VERSION_PATTERN = Pattern.compile("""(?:openjdk|java)\s+version\s+\"(\d+)""", Pattern.CASE_INSENSITIVE)
+        private val JAVA_VERSION_PATTERN = Pattern.compile("""(?:openjdk|java)\s+version\s+\"?(\d+(?:\.\d+){0,2})\"?""", Pattern.CASE_INSENSITIVE)
         private val JAVAC_VERSION_PATTERN = Pattern.compile("""javac\s+(\d+\.\d+\.\d+)""", Pattern.CASE_INSENSITIVE)
-        private val AAPT2_VERSION_PATTERN = Pattern.compile("""aapt\s*2\s+version\s+([\d.]+)""", Pattern.CASE_INSENSITIVE)
+        private val AAPT2_VERSION_PATTERN = Pattern.compile("""aapt\)?\s*2\s+version\s+([\d.]+)""", Pattern.CASE_INSENSITIVE)
         private val D8_VERSION_PATTERN = Pattern.compile("""version\s+([\d.]+)""", Pattern.CASE_INSENSITIVE)
         private val APKSIGNER_VERSION_PATTERN = Pattern.compile("""apksigner\s+version\s+([\d.]+)""", Pattern.CASE_INSENSITIVE)
         private val ADB_VERSION_PATTERN = Pattern.compile("""Android Debug Bridge version\s+([\d.]+)""", Pattern.CASE_INSENSITIVE)
@@ -451,9 +451,9 @@ class SdkManagerImpl(
         fun parseJavaVersion(output: String): Pair<Int, String>? {
             val matcher = JAVA_VERSION_PATTERN.matcher(output)
             if (matcher.find()) {
-                val major = matcher.group(1).toIntOrNull() ?: return null
-                val fullLine = output.lines().firstOrNull { it.contains("version") }?.trim() ?: "unknown"
-                return major to fullLine
+                val version = matcher.group(1)
+                val major = version.substringBefore(".").toIntOrNull() ?: return null
+                return major to version
             }
             return null
         }

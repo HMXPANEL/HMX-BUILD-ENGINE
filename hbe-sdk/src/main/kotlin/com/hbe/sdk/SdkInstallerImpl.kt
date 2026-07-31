@@ -82,7 +82,7 @@ open class SdkInstallerImpl(
     override fun getCacheSize(): Long {
         if (!Files.isDirectory(cacheDir)) return 0
         return Files.walk(cacheDir)
-            .filter { Files.isRegularFile(it) }
+            .filter { Files.isRegularFile(it) && it != cacheManifestFile }
             .mapToLong { Files.size(it) }
             .sum()
     }
