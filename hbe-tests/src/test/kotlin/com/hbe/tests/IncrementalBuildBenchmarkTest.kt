@@ -100,7 +100,8 @@ class IncrementalBuildBenchmarkTest {
         assertTrue("apksigner" in changedTools, "changed classes must re-sign: $changedTools")
         assertEquals(3, changedTools.size, "expected d8 + zipalign + apksigner, got: $changedTools")
 
-        // Build 4 — build dir deleted, cache warm: artifacts restored, APK byte-identical
+        // Build 4 — build dir deleted, cache warm: artifacts restored byte-for-byte
+        val beforeDeleteApk = Files.readAllBytes(buildRoot.resolve("signed/app.apk"))
         Files.walk(buildRoot).sorted(Comparator.reverseOrder()).forEach { Files.deleteIfExists(it) }
         val restored = pipeline.execute(context("bld-restored"))
         assertEquals(BuildResult.Status.SUCCESS, restored.status, "error: ${restored.error?.message}")
@@ -108,7 +109,7 @@ class IncrementalBuildBenchmarkTest {
         assertEquals(0, restored.cacheMisses)
         val restoredTools = countingRunner.calls.subList(cleanTools.size + warmTools.size + changedTools.size, countingRunner.calls.size).toList()
         assertTrue(restoredTools.isEmpty(), "cache restore must not run tools: $restoredTools")
-        assertArrayEquals(warmApk, Files.readAllBytes(buildRoot.resolve("signed/app.apk")),
+        assertArrayEquals(beforeDeleteApk, Files.readAllBytes(buildRoot.resolve("signed/app.apk")),
             "restored build must reproduce the identical APK")
 
         // Report contains graph, cache statistics, timings and a performance comparison
