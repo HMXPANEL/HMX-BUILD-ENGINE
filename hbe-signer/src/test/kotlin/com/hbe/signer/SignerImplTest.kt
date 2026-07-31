@@ -16,7 +16,7 @@ class SignerImplTest {
     @TempDir
     lateinit var tempDir: Path
 
-    private val logger = mockk<Logger>()
+    private val logger = mockk<Logger>(relaxed = true)
 
     private fun signer(toolRunner: ToolRunner): SignerImpl {
         return SignerImpl(com.hbe.infra.OsFileSystem(), toolRunner, logger)

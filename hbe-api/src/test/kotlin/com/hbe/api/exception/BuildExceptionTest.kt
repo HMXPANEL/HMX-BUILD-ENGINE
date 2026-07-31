@@ -8,7 +8,7 @@ class BuildExceptionTest {
 
     @Test
     fun `BuildException has correct error code`() {
-        val ex = BuildException("TEST_ERROR", "Test message")
+        val ex = BuildException(message = "Test message", errorCode = "TEST_ERROR")
         assertEquals("TEST_ERROR", ex.errorCode)
         assertEquals("Test message", ex.message)
     }

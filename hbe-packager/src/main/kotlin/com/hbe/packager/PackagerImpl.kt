@@ -101,10 +101,29 @@ class PackagerImpl(
 
         val entry = ZipEntry(name).apply {
             this.method = method
+            if (method == Deflater.NO_COMPRESSION) {
+                val size = Files.size(source)
+                this.size = size
+                this.compressedSize = size
+                this.crc = crc32(source)
+            }
         }
         zos.putNextEntry(entry)
         Files.newInputStream(source).use { it.transferTo(zos) }
         zos.closeEntry()
+    }
+
+    private fun crc32(source: Path): Long {
+        val crc = CRC32()
+        Files.newInputStream(source).use { ins ->
+            val buf = ByteArray(8192)
+            while (true) {
+                val n = ins.read(buf)
+                if (n < 0) break
+                crc.update(buf, 0, n)
+            }
+        }
+        return crc.value
     }
 
     private fun detectAbi(libPath: Path): String {

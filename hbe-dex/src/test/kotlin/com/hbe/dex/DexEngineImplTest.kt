@@ -13,7 +13,7 @@ class DexEngineImplTest {
     @TempDir
     lateinit var tempDir: Path
 
-    private val logger = mockk<Logger>()
+    private val logger = mockk<Logger>(relaxed = true)
 
     private fun minimalDexBytes(methodIds: Int, fieldIds: Int): ByteArray {
         val bytes = ByteArray(112)

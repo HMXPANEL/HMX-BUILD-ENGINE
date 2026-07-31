@@ -17,7 +17,7 @@ class SourceCompilerImplTest {
     @TempDir
     lateinit var tempDir: Path
 
-    private val logger = mockk<Logger>()
+    private val logger = mockk<Logger>(relaxed = true)
 
     private fun compiler(toolRunner: ToolRunner): SourceCompilerImpl {
         return SourceCompilerImpl(mockk(), com.hbe.infra.OsFileSystem(), toolRunner, logger)

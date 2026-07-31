@@ -26,6 +26,10 @@ allprojects {
         targetCompatibility = "17"
         options.encoding = "UTF-8"
     }
+
+    tasks.withType<Test> {
+        useJUnitPlatform()
+    }
 }
 
 tasks.register("cleanAll") {
