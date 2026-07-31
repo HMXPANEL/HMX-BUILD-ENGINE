@@ -5,7 +5,7 @@ import com.hbe.api.exception.ResourceException
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
-import java.util.zip.ZipInputStream
+import java.util.zip.ZipFile
 import javax.xml.parsers.DocumentBuilderFactory
 import org.w3c.dom.Element
 
@@ -237,18 +237,19 @@ class ResourceCompilerImpl(
         }
         Files.createDirectories(outDir)
 
-        ZipInputStream(Files.newInputStream(zipFile)).use { zis ->
-            var entry = zis.nextEntry
-            while (entry != null) {
+        ZipFile(zipFile.toFile()).use { zf ->
+            val entries = zf.entries()
+            while (entries.hasMoreElements()) {
+                val entry = entries.nextElement()
                 val entryPath = outDir.resolve(entry.name).normalize()
                 if (entry.isDirectory) {
                     Files.createDirectories(entryPath)
                 } else {
                     Files.createDirectories(entryPath.parent)
-                    Files.copy(zis, entryPath, StandardCopyOption.REPLACE_EXISTING)
+                    zf.getInputStream(entry).use { ins ->
+                        Files.copy(ins, entryPath, StandardCopyOption.REPLACE_EXISTING)
+                    }
                 }
-                zis.closeEntry()
-                entry = zis.nextEntry
             }
         }
     }
