@@ -1,9 +1,7 @@
 package com.hbe.dex
+import io.mockk.*
 
 import com.hbe.api.*
-import io.mockk.every
-import io.mockk.mockk
-import io.mockk.verify
 import java.nio.file.Files
 import java.nio.file.Path
 import org.junit.jupiter.api.Assertions.*

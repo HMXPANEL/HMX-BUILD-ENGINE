@@ -1,4 +1,5 @@
 package com.hbe.core.event
+import io.mockk.*
 
 import com.hbe.api.ToolOptions
 import com.hbe.api.ToolResult
@@ -6,8 +7,6 @@ import com.hbe.api.ToolRunner
 import com.hbe.api.event.BuildEvent
 import com.hbe.api.event.ToolExecutionFinishedEvent
 import com.hbe.api.event.ToolExecutionStartedEvent
-import io.mockk.every
-import io.mockk.mockk
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 

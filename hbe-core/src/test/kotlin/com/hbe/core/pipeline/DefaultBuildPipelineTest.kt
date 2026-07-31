@@ -1,4 +1,5 @@
 package com.hbe.core.pipeline
+import io.mockk.*
 
 import com.hbe.api.*
 import com.hbe.api.dto.BuildRequest
@@ -9,10 +10,6 @@ import com.hbe.api.exception.ResourceException
 import com.hbe.core.BuildContextImpl
 import com.hbe.core.event.EventEmittingToolRunner
 import com.hbe.core.event.InMemoryBuildEventBus
-import io.mockk.Runs
-import io.mockk.every
-import io.mockk.mockk
-import io.mockk.verify
 import java.nio.file.Path
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test

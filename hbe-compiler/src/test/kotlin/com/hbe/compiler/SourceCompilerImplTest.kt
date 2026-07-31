@@ -1,12 +1,10 @@
 package com.hbe.compiler
+import io.mockk.*
 
 import com.hbe.api.Classpath
 import com.hbe.api.ToolResult
 import com.hbe.api.ToolRunner
 import com.hbe.api.exception.CompilerException
-import io.mockk.every
-import io.mockk.mockk
-import io.mockk.verify
 import java.nio.file.Files
 import java.nio.file.Path
 import org.junit.jupiter.api.Assertions.*

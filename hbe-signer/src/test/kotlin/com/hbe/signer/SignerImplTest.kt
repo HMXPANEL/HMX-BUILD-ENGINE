@@ -1,10 +1,9 @@
 package com.hbe.signer
+import io.mockk.*
 
 import com.hbe.api.ToolResult
 import com.hbe.api.ToolRunner
 import com.hbe.api.dto.SigningConfig
-import io.mockk.every
-import io.mockk.mockk
 import java.nio.file.Files
 import java.nio.file.Path
 import org.junit.jupiter.api.Assertions.*

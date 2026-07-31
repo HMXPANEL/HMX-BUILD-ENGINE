@@ -1,9 +1,7 @@
 package com.hbe.resources
+import io.mockk.*
 
 import com.hbe.api.*
-import io.mockk.every
-import io.mockk.mockk
-import io.mockk.verify
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.zip.ZipEntry
