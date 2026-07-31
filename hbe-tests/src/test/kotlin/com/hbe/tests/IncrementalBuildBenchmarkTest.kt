@@ -140,7 +140,7 @@ class IncrementalBuildBenchmarkTest {
             |======================================
         """.trimMargin()
         println(summary)
-        Files.writeString(projectDir.resolve("build/hbe-benchmark-summary.txt"), summary)
+        Files.writeString(Path.of("build", "hbe-benchmark-summary.txt").toAbsolutePath(), summary)
     }
 
     private fun editSource(projectDir: Path) {
