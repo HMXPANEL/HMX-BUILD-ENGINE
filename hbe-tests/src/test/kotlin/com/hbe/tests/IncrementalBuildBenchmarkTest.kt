@@ -100,6 +100,14 @@ class IncrementalBuildBenchmarkTest {
         assertTrue("apksigner" in changedTools, "changed classes must re-sign: $changedTools")
         assertEquals(3, changedTools.size, "expected d8 + zipalign + apksigner, got: $changedTools")
 
+        // Report after a non-clean build contains graph, stats, timings and a comparison vs prior
+        val changedReport = String(Files.readAllBytes(buildRoot.resolve("incremental-report.txt")))
+        assertTrue(changedReport.contains("TASK GRAPH"))
+        assertTrue(changedReport.contains("CACHE STATISTICS"))
+        assertTrue(changedReport.contains("INCREMENTAL TIMINGS"))
+        assertTrue(changedReport.contains("PERFORMANCE COMPARISON"))
+        assertTrue(changedReport.contains("JAVA_COMPILE"))
+
         // Build 4 — build dir deleted, cache warm: artifacts restored byte-for-byte
         val beforeDeleteApk = Files.readAllBytes(buildRoot.resolve("signed/app.apk"))
         Files.walk(buildRoot).sorted(Comparator.reverseOrder()).forEach { Files.deleteIfExists(it) }
@@ -112,12 +120,11 @@ class IncrementalBuildBenchmarkTest {
         assertArrayEquals(beforeDeleteApk, Files.readAllBytes(buildRoot.resolve("signed/app.apk")),
             "restored build must reproduce the identical APK")
 
-        // Report contains graph, cache statistics, timings and a performance comparison
+        // Restored build's report: history was wiped with the build dir, so no comparison section
         val report = String(Files.readAllBytes(buildRoot.resolve("incremental-report.txt")))
         assertTrue(report.contains("TASK GRAPH"))
         assertTrue(report.contains("CACHE STATISTICS"))
         assertTrue(report.contains("INCREMENTAL TIMINGS"))
-        assertTrue(report.contains("PERFORMANCE COMPARISON"))
         assertTrue(report.contains("JAVA_COMPILE"))
 
         // Print the benchmark summary
