@@ -28,6 +28,6 @@ jobs:
         with:
           name: test-results
           path: |
-            '**/build/test-results/**/*.xml'
-            '**/build/hbe-benchmark-summary.txt'
+            **/build/test-results/**/*.xml
+            **/build/hbe-benchmark-summary.txt
           if-no-files-found: ignore
