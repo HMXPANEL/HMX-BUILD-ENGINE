@@ -82,7 +82,7 @@ class IncrementalBuildBenchmarkTest {
         assertEquals(BuildResult.Status.SUCCESS, warm.status)
         assertEquals(7, warm.cacheHits)
         assertEquals(0, warm.cacheMisses)
-        val warmTools = countingRunner.calls.subList(cleanTools.size, countingRunner.calls.size)
+        val warmTools = countingRunner.calls.subList(cleanTools.size, countingRunner.calls.size).toList()
         assertTrue(warmTools.isEmpty(), "no tool should run on a fully cached build, got: $warmTools")
         val warmApk = Files.readAllBytes(buildRoot.resolve("signed/app.apk"))
         assertArrayEquals(cleanApk, warmApk, "warm build must reproduce the identical APK")
@@ -93,7 +93,7 @@ class IncrementalBuildBenchmarkTest {
         assertEquals(BuildResult.Status.SUCCESS, changed.status, "error: ${changed.error?.message}")
         assertEquals(2, changed.cacheHits)  // RESOURCE_COMPILE, RESOURCE_LINK
         assertEquals(5, changed.cacheMisses)
-        val changedTools = countingRunner.calls.subList(cleanTools.size + warmTools.size, countingRunner.calls.size)
+        val changedTools = countingRunner.calls.subList(cleanTools.size + warmTools.size, countingRunner.calls.size).toList()
         assertTrue("aapt2" !in changedTools, "resources unchanged, aapt2 must not run: $changedTools")
         assertTrue("d8" in changedTools, "changed classes must re-run d8: $changedTools")
         assertTrue("zipalign" in changedTools, "changed classes must re-package/re-align: $changedTools")
@@ -106,7 +106,7 @@ class IncrementalBuildBenchmarkTest {
         assertEquals(BuildResult.Status.SUCCESS, restored.status, "error: ${restored.error?.message}")
         assertEquals(7, restored.cacheHits)
         assertEquals(0, restored.cacheMisses)
-        val restoredTools = countingRunner.calls.subList(cleanTools.size + warmTools.size + changedTools.size, countingRunner.calls.size)
+        val restoredTools = countingRunner.calls.subList(cleanTools.size + warmTools.size + changedTools.size, countingRunner.calls.size).toList()
         assertTrue(restoredTools.isEmpty(), "cache restore must not run tools: $restoredTools")
         assertArrayEquals(warmApk, Files.readAllBytes(buildRoot.resolve("signed/app.apk")),
             "restored build must reproduce the identical APK")
