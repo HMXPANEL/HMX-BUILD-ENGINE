@@ -456,6 +456,7 @@ class IncrementalBuildPipeline(
             eventBus.publish(CacheMissEvent(buildId, phase = task.node.id,
                 metadata = mapOf("hash" to fingerprint)))
             val start = System.currentTimeMillis()
+            task.outputDir?.let { fileSystem.deleteRecursively(it) }
             task.run()
             val duration = System.currentTimeMillis() - start
             val archive = fileSystem.createTempFile("hbe-cache-", ".zip")

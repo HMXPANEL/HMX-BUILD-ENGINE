@@ -90,7 +90,7 @@ class IncrementalBuildBenchmarkTest {
         // Build 3 — one source file changed: only downstream phases re-run
         editSource(projectDir)
         val changed = pipeline.execute(context("bld-changed"))
-        assertEquals(BuildResult.Status.SUCCESS, changed.status)
+        assertEquals(BuildResult.Status.SUCCESS, changed.status, "error: ${changed.error?.message}")
         assertEquals(2, changed.cacheHits)  // RESOURCE_COMPILE, RESOURCE_LINK
         assertEquals(5, changed.cacheMisses)
         val changedTools = countingRunner.calls.subList(cleanTools.size + warmTools.size, countingRunner.calls.size)
@@ -103,7 +103,7 @@ class IncrementalBuildBenchmarkTest {
         // Build 4 — build dir deleted, cache warm: artifacts restored, APK byte-identical
         Files.walk(buildRoot).sorted(Comparator.reverseOrder()).forEach { Files.deleteIfExists(it) }
         val restored = pipeline.execute(context("bld-restored"))
-        assertEquals(BuildResult.Status.SUCCESS, restored.status)
+        assertEquals(BuildResult.Status.SUCCESS, restored.status, "error: ${restored.error?.message}")
         assertEquals(7, restored.cacheHits)
         assertEquals(0, restored.cacheMisses)
         val restoredTools = countingRunner.calls.subList(cleanTools.size + warmTools.size + changedTools.size, countingRunner.calls.size)

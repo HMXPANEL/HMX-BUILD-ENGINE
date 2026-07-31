@@ -204,6 +204,7 @@ class IncrementalBuildPipelineTest {
         assertEquals(0, resourceCompiler.linkCount)
         assertEquals(1, sourceCompiler.compileJavaCount)
         assertEquals(1, dexEngine.dexCount)
+        assertFalse(sourceCompiler.sawStaleOutput, "re-run must not see leftover class files from the previous build")
     }
 
     @Test
@@ -346,9 +347,13 @@ class IncrementalBuildPipelineTest {
 
     private class FakeSourceCompiler : SourceCompiler {
         var compileJavaCount = 0
+        var sawStaleOutput = false
         fun resetCounts() { compileJavaCount = 0 }
         override fun compileJava(sources: Set<Path>, classpath: Classpath, outputDir: Path): Set<Path> {
             compileJavaCount++
+            if (Files.exists(outputDir) && Files.list(outputDir).use { it.findFirst().isPresent }) {
+                sawStaleOutput = true
+            }
             Files.createDirectories(outputDir.resolve("com/hbe/testapp"))
             val clazz = outputDir.resolve("com/hbe/testapp/MainActivity.class")
             Files.write(clazz, byteArrayOf(20, 21))
