@@ -128,7 +128,7 @@ class IncrementalBuildBenchmarkTest {
         assertTrue(report.contains("JAVA_COMPILE"))
 
         // Print the benchmark summary
-        println("""
+        val summary = """
             |
             |==== INCREMENTAL BUILD BENCHMARK ====
             |Clean build:        ${clean.totalDurationMs}ms (${clean.cacheMisses} misses)
@@ -138,7 +138,9 @@ class IncrementalBuildBenchmarkTest {
             |Warm speedup:       ${"%.1f".format(clean.totalDurationMs.toDouble() / warm.totalDurationMs.coerceAtLeast(1))}x
             |Report:             $buildRoot/incremental-report.txt
             |======================================
-        """.trimMargin())
+        """.trimMargin()
+        println(summary)
+        Files.writeString(projectDir.resolve("build/hbe-benchmark-summary.txt"), summary)
     }
 
     private fun editSource(projectDir: Path) {
