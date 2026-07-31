@@ -15,7 +15,7 @@ class ResourceCompilerImplTest {
     @TempDir
     lateinit var tempDir: Path
 
-    private val logger = com.hbe.core.DefaultLogger()
+    private val logger = mockk<Logger>()
     private val sdkManager = mockk<SdkManager>()
 
     private fun writeManifest(packageName: String = "com.hbe.testapp"): Path {

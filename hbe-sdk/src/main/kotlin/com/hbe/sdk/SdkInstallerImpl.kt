@@ -1,6 +1,7 @@
 package com.hbe.sdk
 
 import com.hbe.api.*
+import com.hbe.api.event.BuildEventBus
 import com.hbe.api.event.DownloadFinishedEvent
 import com.hbe.api.event.DownloadProgressEvent
 import com.hbe.api.event.DownloadStartedEvent

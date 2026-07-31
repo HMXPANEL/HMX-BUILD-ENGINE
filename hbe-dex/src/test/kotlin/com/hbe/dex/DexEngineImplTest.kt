@@ -13,7 +13,7 @@ class DexEngineImplTest {
     @TempDir
     lateinit var tempDir: Path
 
-    private val logger = com.hbe.core.DefaultLogger()
+    private val logger = mockk<Logger>()
 
     private fun minimalDexBytes(methodIds: Int, fieldIds: Int): ByteArray {
         val bytes = ByteArray(112)

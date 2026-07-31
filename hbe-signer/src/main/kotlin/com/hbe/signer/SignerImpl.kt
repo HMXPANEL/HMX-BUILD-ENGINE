@@ -53,7 +53,7 @@ class SignerImpl(
                 ?.substringAfter("certificate DN:")?.trim(),
             signatureAlgorithm = output.lines()
                 .firstOrNull { it.contains("signature algorithm:", ignoreCase = true) }
-                ?.substringAfter("algorithm:", ignoreCase = true)?.trim()
+                ?.substringAfter("algorithm:")?.trim()
         )
     }
 

@@ -1,6 +1,7 @@
 package com.hbe.compiler
 import io.mockk.*
 
+import com.hbe.api.Logger
 import com.hbe.api.Classpath
 import com.hbe.api.ToolResult
 import com.hbe.api.ToolRunner
@@ -16,7 +17,7 @@ class SourceCompilerImplTest {
     @TempDir
     lateinit var tempDir: Path
 
-    private val logger = com.hbe.core.DefaultLogger()
+    private val logger = mockk<Logger>()
 
     private fun compiler(toolRunner: ToolRunner): SourceCompilerImpl {
         return SourceCompilerImpl(mockk(), com.hbe.infra.OsFileSystem(), toolRunner, logger)

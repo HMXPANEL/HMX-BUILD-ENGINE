@@ -1,6 +1,7 @@
 package com.hbe.signer
 import io.mockk.*
 
+import com.hbe.api.Logger
 import com.hbe.api.ToolResult
 import com.hbe.api.ToolRunner
 import com.hbe.api.dto.SigningConfig
@@ -15,7 +16,7 @@ class SignerImplTest {
     @TempDir
     lateinit var tempDir: Path
 
-    private val logger = com.hbe.core.DefaultLogger()
+    private val logger = mockk<Logger>()
 
     private fun signer(toolRunner: ToolRunner): SignerImpl {
         return SignerImpl(com.hbe.infra.OsFileSystem(), toolRunner, logger)
