@@ -6,6 +6,8 @@ import com.hbe.core.ConfigLoader
 import com.hbe.core.DefaultHbeEngine
 import com.hbe.core.DefaultLogger
 import com.hbe.core.PhaseExecutor
+import com.hbe.core.project.ProjectImporter
+import com.hbe.core.project.ProjectResolver
 import com.hbe.diagnostics.DiagnosticsImpl
 import com.hbe.infra.JavaNetHttpClient
 import com.hbe.infra.OsFileSystem
@@ -47,6 +49,34 @@ class HbeCliRunner(private val args: Array<String>) {
     private val phaseExecutor = PhaseExecutor(logger, pipeline)
     private val engine = DefaultHbeEngine(configLoader, phaseExecutor, diagnostics)
 
+    private val dependencyManager = com.hbe.dependency.DependencyManagerImpl(
+        fileSystem, networkClient,
+        com.hbe.cache.CacheManagerImpl(fileSystem, java.nio.file.Path.of(System.getProperty("user.home") ?: ".", ".hbe", "cache")),
+        logger
+    )
+    private val projectImporter = ProjectImporter(fileSystem, logger)
+    private val projectResolver = ProjectResolver(dependencyManager, logger)
+
+    private fun buildIncrementalPipeline(deps: com.hbe.core.pipeline.ProjectDependencies?): com.hbe.core.pipeline.IncrementalBuildPipeline {
+        val eventBus = com.hbe.core.event.InMemoryBuildEventBus()
+        return com.hbe.core.pipeline.IncrementalBuildPipeline(
+            sdkManager = sdkManager,
+            resourceCompiler = com.hbe.resources.ResourceCompilerImpl(sdkManager, fileSystem, toolRunner, logger),
+            sourceCompiler = com.hbe.compiler.SourceCompilerImpl(sdkManager, fileSystem, toolRunner, logger),
+            dexEngine = com.hbe.dex.DexEngineImpl(sdkManager, fileSystem, toolRunner, logger),
+            packager = com.hbe.packager.PackagerImpl(fileSystem, toolRunner, logger),
+            signer = com.hbe.signer.SignerImpl(fileSystem, toolRunner, logger),
+            toolRunner = toolRunner,
+            fileSystem = fileSystem,
+            eventBus = eventBus,
+            logger = logger,
+            cacheManager = com.hbe.cache.CacheManagerImpl(fileSystem, java.nio.file.Path.of(System.getProperty("user.home") ?: ".", ".hbe", "cache")),
+            scheduler = com.hbe.scheduler.TaskScheduler(com.hbe.memory.MemoryManagerImpl(logger), logger),
+            memoryMonitor = com.hbe.memory.MemoryManagerImpl(logger),
+            projectDependencies = deps
+        )
+    }
+
     fun run() {
         if (args.isEmpty()) {
             printUsage()
@@ -64,6 +94,7 @@ class HbeCliRunner(private val args: Array<String>) {
                 "install" -> cmdInstall(commandArgs)
                 "prepare" -> cmdPrepare(commandArgs)
                 "analyze" -> cmdAnalyze(commandArgs)
+                "import" -> cmdImport(commandArgs)
                 "cache" -> cmdCache(commandArgs)
                 "daemon" -> cmdDaemon(commandArgs)
                 "version" -> cmdVersion()
@@ -86,6 +117,7 @@ class HbeCliRunner(private val args: Array<String>) {
         val clean = args.contains("--clean") || args.contains("-c")
         val compose = args.contains("--compose")
         val json = args.contains("--json")
+        val withDeps = args.contains("--deps")
         val ramBudget = extractOption(args, "--ram-budget")?.toIntOrNull() ?: 1024
 
         println("[HBE] Building $projectDir ($variant)...")
@@ -99,7 +131,18 @@ class HbeCliRunner(private val args: Array<String>) {
             incremental = !clean
         )
 
-        val result = engine.build(request)
+        val result = if (withDeps) {
+            val deps = tryResolveDependencies(projectDir)
+            buildIncrementalPipeline(deps).execute(
+                com.hbe.core.BuildContextImpl(
+                    buildId = "bld-" + java.util.UUID.randomUUID().toString().substring(0, 8),
+                    request = request,
+                    config = com.hbe.api.EngineConfig()
+                )
+            )
+        } else {
+            engine.build(request)
+        }
 
         if (json) {
             println("""{"status":"${result.status}","apkPath":"${result.apkPath ?: ""}","buildId":"${result.buildId}"}""")
@@ -108,6 +151,39 @@ class HbeCliRunner(private val args: Array<String>) {
         }
 
         exitProcess(if (result.status == BuildResult.Status.SUCCESS) 0 else 1)
+    }
+
+    private fun tryResolveDependencies(projectDir: String): com.hbe.core.pipeline.ProjectDependencies? {
+        return try {
+            val model = projectImporter.importProject(java.nio.file.Path.of(projectDir))
+            val app = model.applicationModule ?: model.modules.firstOrNull()
+                ?: return null
+            println("[HBE] Imported project '${model.name}', resolving ${app.dependencies.size} dependency declarations...")
+            projectResolver.resolve(model, app.path)
+        } catch (e: Exception) {
+            println("[HBE] Dependency resolution failed: ${e.message}")
+            null
+        }
+    }
+
+    private fun cmdImport(args: Array<String>) {
+        val projectDir = args.firstOrNull() ?: "."
+        val model = projectImporter.importProject(java.nio.file.Path.of(projectDir))
+        println(projectImporter.describe(model))
+
+        val app = model.applicationModule ?: model.modules.firstOrNull()
+        if (app != null && app.dependencies.isNotEmpty()) {
+            println("Resolved dependencies:")
+            val deps = projectResolver.resolve(model, app.path)
+            println("  classpath entries : ${deps.classpath.size}")
+            deps.classpath.forEach { println("    $it") }
+            println("  library res dirs  : ${deps.libraryResDirs.size}")
+            deps.libraryResDirs.forEach { println("    $it") }
+            println("  library assets    : ${deps.libraryAssets.size}")
+            deps.libraryAssets.forEach { println("    $it") }
+            println("  native libs       : ${deps.nativeLibs.size}")
+            deps.nativeLibs.forEach { println("    $it") }
+        }
     }
 
     private fun cmdClean(args: Array<String>) {
@@ -195,6 +271,11 @@ class HbeCliRunner(private val args: Array<String>) {
                 if (error != null) {
                     println("[HBE] Build failed: ${error.message}")
                     if (error.suggestion != null) println("Suggestion: ${error.suggestion}")
+                    if (error.details.isNotEmpty()) {
+                        val shown = error.details.take(20)
+                        shown.forEach { println("  $it") }
+                        if (error.details.size > 20) println("  ... and ${error.details.size - 20} more")
+                    }
                 } else {
                     println("[HBE] Build failed with unknown error")
                 }
@@ -217,6 +298,7 @@ class HbeCliRunner(private val args: Array<String>) {
         println("  install     Install APK via ADB")
         println("  prepare     Pre-download SDK + dependencies")
         println("  analyze     Analyze project structure")
+        println("  import      Import project + resolve dependencies")
         println("  cache       Manage build cache")
         println("  daemon      Start/stop daemon")
         println("  version     Print version")
@@ -226,6 +308,7 @@ class HbeCliRunner(private val args: Array<String>) {
         println("  --variant, -v <name>    Build variant (debug/release)")
         println("  --clean, -c             Clean before building")
         println("  --compose               Enable Compose compiler plugin")
+        println("  --deps                  Resolve project dependencies before building")
         println("  --ram-budget <mb>       Max RAM in MB")
         println("  --json                  Output as JSON")
         println("  --device, -d <id>       Device serial for install")

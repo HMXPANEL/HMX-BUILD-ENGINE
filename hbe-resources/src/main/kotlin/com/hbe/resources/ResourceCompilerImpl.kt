@@ -2,6 +2,7 @@ package com.hbe.resources
 
 import com.hbe.api.*
 import com.hbe.api.exception.ResourceException
+import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
@@ -15,6 +16,10 @@ class ResourceCompilerImpl(
     private val toolRunner: ToolRunner,
     private val logger: Logger
 ) : ResourceCompiler {
+
+    private companion object {
+        const val XMLNS_NS = "http://www.w3.org/2000/xmlns/"
+    }
 
     override fun compile(resDir: Path, outputDir: Path): List<Path> {
         if (!fileSystem.exists(resDir)) {
@@ -221,6 +226,178 @@ class ResourceCompilerImpl(
             }
         }
         return ids
+    }
+
+    override fun mergeResources(outputDir: Path, appResDir: Path, libraryResDirs: List<Path>) {
+        // App res dir first (highest priority), then libraries, so that on a
+        // name collision the app's value is kept and library duplicates are
+        // dropped. Among libraries, earlier entries win.
+        val sources = listOf(appResDir) + libraryResDirs
+        fileSystem.createDirectories(outputDir)
+
+        val valuesDocs = mutableListOf<org.w3c.dom.Document>()
+        val nsSources = mutableListOf<Path>()
+        for (src in sources) {
+            if (src == null || !fileSystem.exists(src)) continue
+            val subdirs = fileSystem.listFiles(src, "*")
+                .filter { fileSystem.metadata(it).isDirectory }
+                .sortedBy { it.fileName.toString() }
+            for (subdir in subdirs) {
+                val dirName = subdir.fileName.toString()
+                if (dirName.startsWith("values")) {
+                    val xmls = fileSystem.walkFiles(subdir, "*.xml")
+                    nsSources += xmls
+                    for (xml in xmls) {
+                        valuesDocs += parseValues(xml)
+                    }
+                } else {
+                    val outSubdir = outputDir.resolve(dirName)
+                    for (file in fileSystem.walkFiles(subdir, "*")) {
+                        val rel = subdir.relativize(file)
+                        val target = outSubdir.resolve(rel).normalize()
+                        if (target.startsWith(outSubdir)) {
+                            fileSystem.createDirectories(target.parent)
+                            fileSystem.copy(file, target)
+                        }
+                    }
+                }
+            }
+        }
+
+        if (valuesDocs.isNotEmpty()) {
+            // aapt2 --dir expects values resources inside a values/ subdirectory.
+            writeMergedValues(outputDir.resolve("values/values.xml"), valuesDocs, nsSources)
+        }
+    }
+
+    private fun parseValues(path: Path): org.w3c.dom.Document {
+        val factory = DocumentBuilderFactory.newInstance()
+        factory.setNamespaceAware(true)
+        return factory.newDocumentBuilder().parse(path.toFile())
+    }
+
+    /**
+     * Collects every xmlns / xmlns:* declaration from the root of each source
+     * document. Parsed non-namespace-aware so the declarations show up as plain
+     * attributes. Returns a map of namespace URI → prefix. If the same prefix is
+     * used for two different URIs, the second one gets a generated unique prefix
+     * so no declaration is silently dropped.
+     */
+    private fun collectNamespaces(sources: List<Path>): Map<String, String> {
+        val factory = DocumentBuilderFactory.newInstance()
+        factory.setNamespaceAware(false)
+        val builder = factory.newDocumentBuilder()
+        val uriToPrefix = LinkedHashMap<String, String>()
+        val takenPrefixes = mutableSetOf<String>()
+        for (path in sources) {
+            if (!fileSystem.exists(path)) continue
+            val root = builder.parse(path.toFile()).documentElement ?: continue
+            for (i in 0 until root.attributes.length) {
+                val attr = root.attributes.item(i)
+                val name = attr.nodeName
+                if (name != "xmlns" && !name.startsWith("xmlns:")) continue
+                val prefix = if (name == "xmlns") "" else name.removePrefix("xmlns:")
+                val uri = attr.nodeValue
+                registerNamespace(uri, prefix, uriToPrefix, takenPrefixes)
+            }
+        }
+        return uriToPrefix
+    }
+
+    private fun registerNamespace(
+        uri: String,
+        prefix: String,
+        uriToPrefix: MutableMap<String, String>,
+        takenPrefixes: MutableSet<String>
+    ) {
+        val existingPrefix = uriToPrefix[uri]
+        if (existingPrefix != null) {
+            // Same URI seen again — keep the first prefix, ignore duplicates.
+            return
+        }
+        if (!takenPrefixes.contains(prefix)) {
+            uriToPrefix[uri] = prefix
+            takenPrefixes += prefix
+        } else {
+            // Prefix collision across different URIs — generate a unique prefix.
+            var i = 2
+            while (takenPrefixes.contains("${prefix}_$i")) i++
+            val unique = "${prefix}_$i"
+            uriToPrefix[uri] = unique
+            takenPrefixes += unique
+        }
+    }
+
+    private fun writeMergedValues(target: Path, docs: List<org.w3c.dom.Document>, nsSources: List<Path>) {
+        val factory = DocumentBuilderFactory.newInstance()
+        factory.setNamespaceAware(true)
+        val doc = factory.newDocumentBuilder().newDocument()
+        val root = doc.createElement("resources")
+        doc.appendChild(root)
+
+        // Declare every namespace from every source on the merged root so that
+        // imported children serialize with resolvable prefixes.
+        val uriToPrefix = collectNamespaces(nsSources)
+        for ((uri, prefix) in uriToPrefix) {
+            if (prefix.isEmpty()) {
+                root.setAttributeNS(XMLNS_NS, "xmlns", uri)
+            } else {
+                root.setAttributeNS(XMLNS_NS, "xmlns:$prefix", uri)
+            }
+        }
+
+        val seen = mutableSetOf<String>()
+        for (source in docs) {
+            val srcRoot = source.documentElement ?: continue
+            for (child in childElements(srcRoot)) {
+                val name = child.getAttribute("name")
+                val localName = child.localName ?: child.tagName
+                val ns = child.namespaceURI ?: ""
+                val key = if (name.isNotBlank()) "$ns/$localName/$name" else null
+                if (key != null) {
+                    if (!seen.add(key)) continue
+                }
+                root.appendChild(doc.importNode(child, true))
+            }
+        }
+
+        fileSystem.createDirectories(target.parent)
+        val bytes = serializeDocument(doc)
+
+        // Validate: re-parse the produced bytes through a strict parser. If this
+        // throws, we never write a corrupt file to disk.
+        try {
+            val validator = factory.newDocumentBuilder()
+            validator.parse(java.io.ByteArrayInputStream(bytes))
+        } catch (e: Exception) {
+            throw com.hbe.api.exception.ResourceException(
+                message = "Merged values.xml failed XML validation: ${e.message}",
+                suggestion = "Report this as a bug — the resource merger produced invalid XML",
+                details = listOf(String(bytes, StandardCharsets.UTF_8).take(500))
+            )
+        }
+
+        fileSystem.writeBytes(target, bytes)
+    }
+
+    private fun serializeDocument(doc: org.w3c.dom.Document): ByteArray {
+        val transformer = javax.xml.transform.TransformerFactory.newInstance().newTransformer()
+        transformer.setOutputProperty(javax.xml.transform.OutputKeys.INDENT, "yes")
+        transformer.setOutputProperty(javax.xml.transform.OutputKeys.ENCODING, "utf-8")
+        transformer.setOutputProperty(javax.xml.transform.OutputKeys.OMIT_XML_DECLARATION, "no")
+        val out = java.io.ByteArrayOutputStream()
+        transformer.transform(javax.xml.transform.dom.DOMSource(doc), javax.xml.transform.stream.StreamResult(out))
+        return out.toByteArray()
+    }
+
+    private fun childElements(parent: Element): List<Element> {
+        val result = mutableListOf<Element>()
+        val children = parent.childNodes
+        for (i in 0 until children.length) {
+            val node = children.item(i)
+            if (node is Element) result.add(node)
+        }
+        return result
     }
 
     internal fun parseAapt2Errors(stderr: String): List<String> {

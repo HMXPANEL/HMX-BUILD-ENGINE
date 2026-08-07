@@ -3,6 +3,7 @@ package com.hbe.api
 import java.nio.file.Path
 
 interface ResourceCompiler {
+    fun mergeResources(outputDir: Path, appResDir: Path, libraryResDirs: List<Path>)
     fun compile(resDir: Path, outputDir: Path): List<Path>
     fun link(
         flatFiles: List<Path>,

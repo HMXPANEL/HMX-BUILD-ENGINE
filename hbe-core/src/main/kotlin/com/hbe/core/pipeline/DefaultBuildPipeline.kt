@@ -9,6 +9,7 @@ import com.hbe.api.dto.SigningConfig
 import com.hbe.api.event.*
 import com.hbe.api.exception.BuildException
 import com.hbe.core.BuildCancelledException
+import com.hbe.core.event.BuildProgressTracker
 import com.hbe.core.event.EventEmittingToolRunner
 import java.nio.file.Path
 
@@ -24,6 +25,10 @@ class DefaultBuildPipeline(
     private val eventBus: BuildEventBus,
     private val logger: Logger
 ) : BuildPipeline {
+
+    private val progressTracker = BuildProgressTracker(logger).also {
+        it.attach(eventBus)
+    }
 
     override fun execute(context: BuildContext): BuildResult {
         val buildId = context.buildId

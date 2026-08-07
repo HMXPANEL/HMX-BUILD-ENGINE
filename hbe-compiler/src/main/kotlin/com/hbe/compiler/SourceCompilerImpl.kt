@@ -129,6 +129,7 @@ class SourceCompilerImpl(
             "-classpath", classpath.toJvmClasspath(),
             "-source", "17",
             "-target", "17",
+            "-encoding", "UTF-8",
             "-Xlint:-options"
         )
 
@@ -181,7 +182,8 @@ class SourceCompilerImpl(
             "-d", outputDir.toString(),
             "-cp", classpath.toJvmClasspath(),
             "-source", "17",
-            "-target", "17"
+            "-target", "17",
+            "-encoding", "UTF-8"
         )
         args.addAll(sources.map { it.toString() })
 

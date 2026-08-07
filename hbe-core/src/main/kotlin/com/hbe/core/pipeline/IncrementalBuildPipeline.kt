@@ -10,6 +10,7 @@ import com.hbe.api.dto.SigningConfig
 import com.hbe.api.event.*
 import com.hbe.api.exception.BuildException
 import com.hbe.core.BuildCancelledException
+import com.hbe.core.event.BuildProgressTracker
 import com.hbe.core.event.EventEmittingToolRunner
 import com.hbe.graph.BuildEdge
 import com.hbe.graph.BuildGraph
@@ -46,10 +47,14 @@ class IncrementalBuildPipeline(
     private val logger: Logger,
     private val cacheManager: CacheManager,
     private val scheduler: TaskScheduler,
-    private val memoryMonitor: MemoryMonitor
+    private val memoryMonitor: MemoryMonitor,
+    private val projectDependencies: ProjectDependencies? = null
 ) : BuildPipeline {
 
     private val state = mutableMapOf<String, Any>()
+    private val progressTracker = BuildProgressTracker(logger).also {
+        it.attach(eventBus)
+    }
 
     override fun execute(context: BuildContext): BuildResult {
         val buildId = context.buildId
@@ -70,7 +75,7 @@ class IncrementalBuildPipeline(
             token.throwIfCancelled()
 
             val projectRoot = findProjectRoot(Path.of(request.projectDir))
-            val manifest = findManifest(projectRoot)
+            val originalManifest = findManifest(projectRoot)
                 ?: throw BuildException(
                     message = "AndroidManifest.xml not found in $projectRoot",
                     errorCode = "MANIFEST_NOT_FOUND",
@@ -87,11 +92,20 @@ class IncrementalBuildPipeline(
             val buildRoot = resolveBuildRoot(projectRoot, config)
             fileSystem.createDirectories(buildRoot)
 
+            // When the module declares a namespace (build.gradle) but the manifest
+            // carries no package attribute, inject it into a build-dir copy so
+            // aapt2 link and R generation use the right package. The project
+            // source tree is never modified.
+            val deps = projectDependencies
+            val manifest = prepareManifest(originalManifest, buildRoot, deps?.namespace)
+
             val toolKey = "${resolution.buildToolsDir.fileName}/platforms/${resolution.platformDir.fileName}"
             val baseParams = mapOf("scheme" to "v1", "tool" to toolKey, "compileSdk" to compileSdk.toString())
 
             val fingerprints = mutableMapOf<String, String>()
+            val mergedRes = buildRoot.resolve("res/merged")
             val flatOut = buildRoot.resolve("res/flat")
+            val libFlatDirs = deps?.libraryResDirs?.mapIndexed { i, _ -> buildRoot.resolve("res/lib-$i") } ?: emptyList()
             val linkOut = buildRoot.resolve("res/link")
             val javaClasses = buildRoot.resolve("classes/java")
             val kotlinClasses = buildRoot.resolve("classes/kotlin")
@@ -115,31 +129,55 @@ class IncrementalBuildPipeline(
             val tasks = mutableListOf(manifestTask)
             val sourceNodeIds = mutableListOf<String>()
 
-            if (resDir != null) {
+            val hasRes = resDir != null || deps?.libraryResDirs?.isNotEmpty() == true
+            if (hasRes) {
                 tasks += TaskSpec(
-                    node = BuildNode("RESOURCE_COMPILE", NodeType.RES_COMPILE, label = "RESOURCE_COMPILE"),
+                    node = BuildNode("RESOURCE_MERGE", NodeType.RES_COMPILE, label = "RESOURCE_MERGE"),
                     params = baseParams,
                     upstreamIds = emptyList(),
-                    inputFiles = { fileSystem.walkFiles(resDir, "*") },
-                    outputDir = flatOut,
+                    inputFiles = {
+                        val appRes = resDir?.let { fileSystem.walkFiles(it, "*") } ?: emptyList()
+                        val libRes = deps?.libraryResDirs?.flatMap { fileSystem.walkFiles(it, "*") } ?: emptyList()
+                        appRes + libRes
+                    },
+                    outputDir = mergedRes,
                     run = {
                         val start = System.currentTimeMillis()
                         eventBus.publish(ResourceCompilationStartedEvent(buildId))
-                        val files = resourceCompiler.compile(resDir, flatOut)
+                        val libRes = deps?.libraryResDirs ?: emptyList()
+                        resourceCompiler.mergeResources(mergedRes, resDir ?: mergedRes, libRes)
+                        state["mergedRes"] = mergedRes
+                        eventBus.publish(ResourceCompilationFinishedEvent(buildId,
+                            durationMs = System.currentTimeMillis() - start,
+                            metadata = mapOf("mergedRes" to mergedRes.toString())))
+                    },
+                    restore = { state["mergedRes"] = mergedRes },
+                    outputReady = { fileSystem.exists(mergedRes) && fileSystem.walkFiles(mergedRes, "*").isNotEmpty() }
+                )
+
+                tasks += TaskSpec(
+                    node = BuildNode("RESOURCE_COMPILE", NodeType.RES_COMPILE, label = "RESOURCE_COMPILE"),
+                    params = baseParams,
+                    upstreamIds = listOf("RESOURCE_MERGE"),
+                    inputFiles = { fileSystem.walkFiles(mergedRes, "*") },
+                    outputDir = flatOut,
+                    run = {
+                        val start = System.currentTimeMillis()
+                        val files = resourceCompiler.compile(mergedRes, flatOut)
                         state["flatFiles"] = files
                         eventBus.publish(ResourceCompilationFinishedEvent(buildId,
                             durationMs = System.currentTimeMillis() - start,
                             metadata = mapOf("flatFileCount" to files.size)))
                     },
-                    restore = { state["flatFiles"] = fileSystem.walkFiles(flatOut, "*.flat") },
-                    outputReady = { fileSystem.walkFiles(flatOut, "*.flat").isNotEmpty() }
+                    restore = { state["flatFiles"] = collectAllFlats(flatOut, libFlatDirs) },
+                    outputReady = { collectAllFlats(flatOut, libFlatDirs).isNotEmpty() }
                 )
             }
 
             tasks += TaskSpec(
                 node = BuildNode("RESOURCE_LINK", NodeType.RES_LINK, label = "RESOURCE_LINK"),
                 params = baseParams,
-                upstreamIds = listOf("MANIFEST") + (if (resDir != null) listOf("RESOURCE_COMPILE") else emptyList()),
+                upstreamIds = listOf("MANIFEST") + (if (hasRes) listOf("RESOURCE_COMPILE") else emptyList()),
                 inputFiles = { listOf(manifest) },
                 outputDir = linkOut,
                 run = {
@@ -158,7 +196,8 @@ class IncrementalBuildPipeline(
 
             val javaSources = collectSources(projectRoot, "java")
             val kotlinSources = collectSources(projectRoot, "kotlin")
-            val baseClasspath = Classpath(entries = listOf(androidJar))
+            val dependencyClasspath = deps?.classpath ?: emptyList()
+            val baseClasspath = Classpath(entries = listOf(androidJar) + dependencyClasspath)
 
             if (javaSources.isNotEmpty()) {
                 sourceNodeIds += "JAVA_COMPILE"
@@ -168,7 +207,7 @@ class IncrementalBuildPipeline(
                     upstreamIds = listOf("RESOURCE_LINK"),
                     inputFiles = {
                         val rJava = (state["bundle"] as? ResourceBundle)?.rJava
-                        javaSources.toList() + (rJava?.let { listOf(it) } ?: emptyList())
+                        javaSources.toList() + (rJava?.let { listOf(it) } ?: emptyList()) + dependencyClasspath
                     },
                     outputDir = javaClasses,
                     run = {
@@ -194,7 +233,7 @@ class IncrementalBuildPipeline(
                     node = BuildNode("KOTLIN_COMPILE", NodeType.SOURCE_COMPILE, label = "KOTLIN_COMPILE"),
                     params = baseParams + mapOf("compose" to request.compose.toString(), "kotlinVersion" to "1.9.24"),
                     upstreamIds = if (javaSources.isNotEmpty()) listOf("JAVA_COMPILE") else listOf("RESOURCE_LINK"),
-                    inputFiles = { kotlinSources.toList() },
+                    inputFiles = { kotlinSources.toList() + dependencyClasspath },
                     outputDir = kotlinClasses,
                     run = {
                         val start = System.currentTimeMillis()
@@ -224,14 +263,15 @@ class IncrementalBuildPipeline(
                 node = BuildNode("DEX", NodeType.DEX, label = "DEX"),
                 params = baseParams + mapOf("minSdk" to minSdk.toString(), "debug" to (variant != "release").toString()),
                 upstreamIds = sourceNodeIds,
-                inputFiles = { emptyList() },
+                inputFiles = { dependencyClasspath },
                 outputDir = dexOut,
                 run = {
                     val start = System.currentTimeMillis()
                     eventBus.publish(DexGenerationStartedEvent(buildId))
                     val java = (state["javaClasses"] as? Set<*>)?.filterIsInstance<Path>()?.toSet() ?: emptySet()
                     val kotlin = (state["kotlinClasses"] as? Set<*>)?.filterIsInstance<Path>()?.toSet() ?: emptySet()
-                    val dexOutput = dexEngine.dex(java + kotlin, DexConfig(
+                    val dexInputs = java + kotlin + dependencyClasspath
+                    val dexOutput = dexEngine.dex(dexInputs, DexConfig(
                         minSdk = minSdk,
                         debug = variant != "release",
                         outputDir = dexOut,
@@ -253,16 +293,20 @@ class IncrementalBuildPipeline(
 
             tasks += TaskSpec(
                 node = BuildNode("PACKAGE", NodeType.PACKAGE, label = "PACKAGE"),
-                params = baseParams,
+                params = baseParams + mapOf("libAssets" to (deps?.libraryAssets?.size ?: 0).toString(),
+                    "libNative" to (deps?.nativeLibs?.size ?: 0).toString()),
                 upstreamIds = listOf("DEX", "RESOURCE_LINK"),
-                inputFiles = { emptyList() },
+                inputFiles = { (deps?.libraryAssets ?: emptyList()) + (deps?.nativeLibs ?: emptyList()) },
                 outputDir = packageOut,
                 run = {
                     val start = System.currentTimeMillis()
                     eventBus.publish(PackagingStartedEvent(buildId))
                     val dexOutput = state["dexOutput"] as DexOutput
                     val bundle = state["bundle"] as ResourceBundle
-                    val apk = packager.packageApk(dexOutput, bundle, bundle.manifest, outputDir = packageOut)
+                    val apk = packager.packageApk(dexOutput, bundle, bundle.manifest,
+                        nativeLibs = deps?.nativeLibs ?: emptyList(),
+                        assets = deps?.libraryAssets ?: emptyList(),
+                        outputDir = packageOut)
                     state["apkFile"] = apk
                     eventBus.publish(PackagingFinishedEvent(buildId,
                         durationMs = System.currentTimeMillis() - start,
@@ -651,6 +695,35 @@ class IncrementalBuildPipeline(
             root.resolve("src/main/res")
         ).firstOrNull { isDirectory(it) }
     }
+
+    /**
+     * Returns the manifest to compile against. If the module declares a
+     * namespace in build.gradle but the manifest carries no package attribute,
+     * a build-dir copy with the package attribute injected is produced so the
+     * source tree is never modified.
+     */
+    private fun prepareManifest(original: Path, buildRoot: Path, namespace: String?): Path {
+        if (namespace.isNullOrBlank()) return original
+        val text = String(fileSystem.readAllBytes(original))
+        val hasPackage = Regex("""package\s*=\s*["']""").containsMatchIn(text) ||
+            Regex("""<manifest[^>]*\spackage\s*=\s*""").containsMatchIn(text)
+        if (hasPackage) return original
+        val injected = text.replace(
+            Regex("""(<manifest\b[^>]*)(/?>)"""),
+            "$1 package=\"${namespace.escapeXml()}\"$2"
+        )
+        val target = buildRoot.resolve("manifest/AndroidManifest.xml")
+        fileSystem.createDirectories(target.parent)
+        fileSystem.writeBytes(target, injected.toByteArray())
+        return target
+    }
+
+    private fun String.escapeXml(): String =
+        replace("&", "&amp;").replace("\"", "&quot;").replace("<", "&lt;").replace(">", "&gt;")
+
+    private fun collectAllFlats(flatOut: Path, libFlatDirs: List<Path>): List<Path> =
+        (fileSystem.walkFiles(flatOut, "*.flat") + libFlatDirs.flatMap { fileSystem.walkFiles(it, "*.flat") })
+            .sorted()
 
     private fun collectSources(root: Path, language: String): Set<Path> {
         val candidates = listOf(

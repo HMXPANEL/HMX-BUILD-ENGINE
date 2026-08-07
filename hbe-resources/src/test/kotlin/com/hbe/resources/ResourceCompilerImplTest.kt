@@ -199,4 +199,215 @@ class ResourceCompilerImplTest {
         }
         assertTrue(ex.details.any { it.contains("unexpected tag") })
     }
+
+    // --- mergeResources regression tests ---
+
+    private fun writeValuesFile(dir: Path, name: String, content: String): Path {
+        Files.createDirectories(dir)
+        val file = dir.resolve(name)
+        Files.writeString(file, content)
+        return file
+    }
+
+    private fun makeResDir(
+        values: List<Pair<String, String>>,
+        extraDirs: Map<String, String> = emptyMap()
+    ): Path {
+        val res = tempDir.resolve("res-${java.util.concurrent.ThreadLocalRandom.current().nextInt()}")
+        val valuesDir = res.resolve("values")
+        for ((name, content) in values) {
+            writeValuesFile(valuesDir, name, content)
+        }
+        for ((dirName, fileContent) in extraDirs) {
+            val d = res.resolve(dirName)
+            Files.createDirectories(d)
+            Files.writeString(d.resolve("test.xml"), fileContent)
+        }
+        return res
+    }
+
+    @Test
+    fun `mergeResources preserves xliff namespace declaration`() {
+        val lib = makeResDir(listOf("strings.xml" to """
+            <?xml version="1.0" encoding="utf-8"?>
+            <resources xmlns:ns1="urn:oasis:names:tc:xliff:document:1.2">
+                <string name="lib_text" ns1:someattr="x">Hello</string>
+            </resources>
+        """.trimIndent()))
+        val app = makeResDir(listOf("strings.xml" to """
+            <?xml version="1.0" encoding="utf-8"?>
+            <resources>
+                <string name="app_text">App</string>
+            </resources>
+        """.trimIndent()))
+
+        val compiler = compiler(mockk())
+        val outDir = tempDir.resolve("merged")
+        compiler.mergeResources(outDir, app, listOf(lib))
+
+        val merged = Files.readString(outDir.resolve("values.xml"))
+        assertTrue(merged.contains("xmlns:ns1=\"urn:oasis:names:tc:xliff:document:1.2\""),
+            "xliff namespace must be declared. Got: $merged")
+        assertTrue(merged.contains("app_text"), "app resource must be present")
+        assertTrue(merged.contains("lib_text"), "library resource must be present")
+    }
+
+    @Test
+    fun `mergeResources preserves tools namespace declaration`() {
+        val lib = makeResDir(listOf("values.xml" to """
+            <?xml version="1.0" encoding="utf-8"?>
+            <resources xmlns:tools="http://schemas.android.com/tools">
+                <style name="Base" parent="Theme.AppCompat">
+                    <item name="colorPrimary" tools:targetApi="21">#FFF</item>
+                </style>
+            </resources>
+        """.trimIndent()))
+        val app = makeResDir(listOf("values.xml" to """
+            <?xml version="1.0" encoding="utf-8"?>
+            <resources>
+                <style name="AppTheme" parent="Base"/>
+            </resources>
+        """.trimIndent()))
+
+        val compiler = compiler(mockk())
+        val outDir = tempDir.resolve("merged-tools")
+        compiler.mergeResources(outDir, app, listOf(lib))
+
+        val merged = Files.readString(outDir.resolve("values.xml"))
+        assertTrue(merged.contains("xmlns:tools=\"http://schemas.android.com/tools\""),
+            "tools namespace must be declared. Got: $merged")
+    }
+
+    @Test
+    fun `mergeResources preserves android namespace declaration`() {
+        val lib = makeResDir(listOf("values.xml" to """
+            <?xml version="1.0" encoding="utf-8"?>
+            <resources xmlns:android="http://schemas.android.com/apk/res/android">
+                <bool name="is_tablet">false</bool>
+            </resources>
+        """.trimIndent()))
+        val app = makeResDir(listOf("values.xml" to """
+            <?xml version="1.0" encoding="utf-8"?>
+            <resources>
+                <string name="app_name">Test</string>
+            </resources>
+        """.trimIndent()))
+
+        val compiler = compiler(mockk())
+        val outDir = tempDir.resolve("merged-android")
+        compiler.mergeResources(outDir, app, listOf(lib))
+
+        val merged = Files.readString(outDir.resolve("values.xml"))
+        assertTrue(merged.contains("xmlns:android=\"http://schemas.android.com/apk/res/android\""),
+            "android namespace must be declared. Got: $merged")
+    }
+
+    @Test
+    fun `mergeResources preserves custom namespace declaration`() {
+        val lib = makeResDir(listOf("values.xml" to """
+            <?xml version="1.0" encoding="utf-8"?>
+            <resources xmlns:app="http://schemas.android.com/apk/res-auto">
+                <attr name="customAttr" format="color"/>
+            </resources>
+        """.trimIndent()))
+        val app = makeResDir(listOf("values.xml" to """
+            <?xml version="1.0" encoding="utf-8"?>
+            <resources>
+                <string name="hello">Hi</string>
+            </resources>
+        """.trimIndent()))
+
+        val compiler = compiler(mockk())
+        val outDir = tempDir.resolve("merged-custom")
+        compiler.mergeResources(outDir, app, listOf(lib))
+
+        val merged = Files.readString(outDir.resolve("values.xml"))
+        assertTrue(merged.contains("xmlns:app=\"http://schemas.android.com/apk/res-auto\""),
+            "custom app namespace must be declared. Got: $merged")
+    }
+
+    @Test
+    fun `mergeResources produces byte-valid XML that re-parses cleanly`() {
+        val lib = makeResDir(listOf("values.xml" to """
+            <?xml version="1.0" encoding="utf-8"?>
+            <resources xmlns:ns1="urn:oasis:names:tc:xliff:document:1.2">
+                <string name="greeting">Hello</string>
+                <color name="bg">#FFFFFF</color>
+            </resources>
+        """.trimIndent()))
+        val app = makeResDir(listOf("values.xml" to """
+            <?xml version="1.0" encoding="utf-8"?>
+            <resources>
+                <string name="app_name">MyApp</string>
+            </resources>
+        """.trimIndent()))
+
+        val compiler = compiler(mockk())
+        val outDir = tempDir.resolve("merged-valid")
+        compiler.mergeResources(outDir, app, listOf(lib))
+
+        val bytes = Files.readAllBytes(outDir.resolve("values.xml"))
+        val parsed = javax.xml.parsers.DocumentBuilderFactory.newInstance().newDocumentBuilder()
+            .parse(java.io.ByteArrayInputStream(bytes))
+        assertNotNull(parsed.documentElement, "merged XML must re-parse without error")
+        assertEquals("resources", parsed.documentElement.tagName)
+    }
+
+    @Test
+    fun `mergeResources deduplicates by resource name keeping app value`() {
+        val lib = makeResDir(listOf("strings.xml" to """
+            <?xml version="1.0" encoding="utf-8"?>
+            <resources>
+                <string name="shared_key">library value</string>
+            </resources>
+        """.trimIndent()))
+        val app = makeResDir(listOf("strings.xml" to """
+            <?xml version="1.0" encoding="utf-8"?>
+            <resources>
+                <string name="shared_key">app value</string>
+            </resources>
+        """.trimIndent()))
+
+        val compiler = compiler(mockk())
+        val outDir = tempDir.resolve("merged-dedup")
+        compiler.mergeResources(outDir, app, listOf(lib))
+
+        val merged = Files.readString(outDir.resolve("values.xml"))
+        assertTrue(merged.contains("app value"), "app value must win on conflict")
+        assertFalse(merged.contains("library value"), "library value must be dropped on conflict")
+    }
+
+    @Test
+    fun `mergeResources handles prefix collision across different URIs`() {
+        // Two libraries both use prefix "ns1" for DIFFERENT URIs — must not drop either.
+        val lib1 = makeResDir(listOf("values.xml" to """
+            <?xml version="1.0" encoding="utf-8"?>
+            <resources xmlns:ns1="http://example.com/first">
+                <string name="from_first">A</string>
+            </resources>
+        """.trimIndent()))
+        val lib2 = makeResDir(listOf("values.xml" to """
+            <?xml version="1.0" encoding="utf-8"?>
+            <resources xmlns:ns1="http://example.com/second">
+                <string name="from_second">B</string>
+            </resources>
+        """.trimIndent()))
+        val app = makeResDir(listOf("values.xml" to """
+            <?xml version="1.0" encoding="utf-8"?>
+            <resources>
+                <string name="app_val">C</string>
+            </resources>
+        """.trimIndent()))
+
+        val compiler = compiler(mockk())
+        val outDir = tempDir.resolve("merged-collision")
+        compiler.mergeResources(outDir, app, listOf(lib1, lib2))
+
+        val merged = Files.readString(outDir.resolve("values.xml"))
+        assertTrue(merged.contains("from_first"), "first lib resource must survive")
+        assertTrue(merged.contains("from_second"), "second lib resource must survive")
+        // Both URIs must be declared (one with a generated unique prefix)
+        assertTrue(merged.contains("http://example.com/first"), "first URI must be declared")
+        assertTrue(merged.contains("http://example.com/second"), "second URI must be declared")
+    }
 }
