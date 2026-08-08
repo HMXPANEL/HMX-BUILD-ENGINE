@@ -116,7 +116,7 @@ class IncrementalBuildPipelineTest {
 
         assertEquals(BuildResult.Status.SUCCESS, result.status, "error: ${result.error?.message}")
         assertEquals(0, result.cacheHits)
-        assertEquals(7, result.cacheMisses)
+        assertEquals(8, result.cacheMisses)
         assertTrue(Files.exists(buildRoot.resolve("signed/app.apk")))
 
         assertEquals(1, resourceCompiler.compileCount)
@@ -141,7 +141,7 @@ class IncrementalBuildPipelineTest {
         val result = runBuild(pipeline, "bld-warm")
 
         assertEquals(BuildResult.Status.SUCCESS, result.status)
-        assertEquals(7, result.cacheHits)
+        assertEquals(8, result.cacheHits)
         assertEquals(0, result.cacheMisses)
         toolPhases(result).forEach {
             assertTrue(it.cacheHit, "${it.name} should be a cache hit")
@@ -189,7 +189,7 @@ class IncrementalBuildPipelineTest {
         val result = runBuild(pipeline, "bld-changed")
 
         assertEquals(BuildResult.Status.SUCCESS, result.status)
-        assertEquals(2, result.cacheHits)   // RESOURCE_COMPILE, RESOURCE_LINK unchanged
+        assertEquals(3, result.cacheHits)   // RESOURCE_MERGE, RESOURCE_COMPILE, RESOURCE_LINK unchanged
         assertEquals(5, result.cacheMisses) // JAVA_COMPILE, DEX, PACKAGE, ALIGN, SIGN
 
         val byName = result.phases.associateBy { it.name }
@@ -219,7 +219,7 @@ class IncrementalBuildPipelineTest {
         val restored = runBuild(pipeline, "bld-restored")
 
         assertEquals(BuildResult.Status.SUCCESS, restored.status)
-        assertEquals(7, restored.cacheHits)
+        assertEquals(8, restored.cacheHits)
         assertEquals(0, restored.cacheMisses)
         assertArrayEquals(cleanApk, Files.readAllBytes(buildRoot.resolve("signed/app.apk")))
         assertTrue(restored.metadata["reportPath"] != null)
@@ -243,7 +243,7 @@ class IncrementalBuildPipelineTest {
         assertTrue(report.contains("TASK GRAPH"))
         assertTrue(report.contains("CACHE STATISTICS"))
         assertTrue(report.contains("INCREMENTAL TIMINGS"))
-        assertTrue(report.contains("Cache misses:          7"))
+        assertTrue(report.contains("Cache misses:          8"))
     }
 
     @Test
@@ -343,6 +343,9 @@ class IncrementalBuildPipelineTest {
             )
         }
         override fun mergeManifests(manifests: List<ManifestSource>, outputDir: Path): Path = manifests[0].path
+        override fun mergeResources(outputDir: Path, appResDir: Path, libraryResDirs: List<Path>) {
+            Files.createDirectories(outputDir)
+        }
     }
 
     private class FakeSourceCompiler : SourceCompiler {

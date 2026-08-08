@@ -46,14 +46,16 @@ class ProjectResolver(
         val libraryResDirs = mutableListOf<Path>()
         val libraryAssets = mutableListOf<Path>()
         val nativeLibs = mutableListOf<Path>()
+        val libraryManifests = mutableListOf<Path>()
 
-        collectArtifacts(graph, repositories, classpath, libraryResDirs, libraryAssets, nativeLibs)
+        collectArtifacts(graph, repositories, classpath, libraryResDirs, libraryAssets, nativeLibs, libraryManifests)
 
         return ProjectDependencies(
             classpath = classpath.distinct().sorted(),
             libraryResDirs = libraryResDirs.distinct().sorted(),
             libraryAssets = libraryAssets.distinct().sorted(),
             nativeLibs = nativeLibs.distinct().sorted(),
+            libraryManifests = libraryManifests.distinct().sorted(),
             namespace = module.namespace
         )
     }
@@ -64,7 +66,8 @@ class ProjectResolver(
         classpath: MutableList<Path>,
         libraryResDirs: MutableList<Path>,
         libraryAssets: MutableList<Path>,
-        nativeLibs: MutableList<Path>
+        nativeLibs: MutableList<Path>,
+        libraryManifests: MutableList<Path>
     ) {
         // Collect every reachable node, then keep only the highest version for each
         // group:artifact. Leaky conflict resolution (or transitive duplicates) can
@@ -91,7 +94,7 @@ class ProjectResolver(
         }
 
         for (node in winnerByKey.values) {
-            addArtifact(node.coordinate, repositories, classpath, libraryResDirs, libraryAssets, nativeLibs)
+            addArtifact(node.coordinate, repositories, classpath, libraryResDirs, libraryAssets, nativeLibs, libraryManifests)
         }
     }
 
@@ -125,7 +128,8 @@ class ProjectResolver(
         classpath: MutableList<Path>,
         libraryResDirs: MutableList<Path>,
         libraryAssets: MutableList<Path>,
-        nativeLibs: MutableList<Path>
+        nativeLibs: MutableList<Path>,
+        libraryManifests: MutableList<Path>
     ) {
         val local = dependencyManager.resolveAndDownload(coordinate, repositories)
         if (coordinate.effectiveExtension == "aar") {
@@ -139,6 +143,8 @@ class ProjectResolver(
             if (libsDir != null) nativeLibs.add(libsDir)
             val jni = contents.extractDir.resolve("jni")
             if (Files.isDirectory(jni)) nativeLibs.add(jni)
+            val manifest = contents.manifest
+            if (manifest != null && Files.exists(manifest)) libraryManifests.add(manifest)
         } else {
             classpath.add(local)
         }

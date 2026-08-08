@@ -12,6 +12,7 @@ import com.hbe.api.exception.BuildException
 import com.hbe.core.BuildCancelledException
 import com.hbe.core.event.BuildProgressTracker
 import com.hbe.core.event.EventEmittingToolRunner
+import com.hbe.core.project.ManifestMerger
 import com.hbe.graph.BuildEdge
 import com.hbe.graph.BuildGraph
 import com.hbe.graph.BuildNode
@@ -99,6 +100,15 @@ class IncrementalBuildPipeline(
             val deps = projectDependencies
             val manifest = prepareManifest(originalManifest, buildRoot, deps?.namespace)
 
+            // Merge library AAR manifests into the app manifest so that components
+            // declared by dependencies (e.g. androidx.startup.InitializationProvider,
+            // CoreComponentFactory, ProfileInstallReceiver) are present in the APK.
+            val mergedManifest = if (deps != null && deps.libraryManifests.isNotEmpty()) {
+                val applicationId = deps.namespace ?: request.projectDir.substringAfterLast("/")
+                ManifestMerger(fileSystem, logger).merge(manifest, deps.libraryManifests, applicationId)
+            } else {
+                manifest
+            }
             val toolKey = "${resolution.buildToolsDir.fileName}/platforms/${resolution.platformDir.fileName}"
             val baseParams = mapOf("scheme" to "v1", "tool" to toolKey, "compileSdk" to compileSdk.toString())
 
@@ -118,7 +128,7 @@ class IncrementalBuildPipeline(
                 node = BuildNode("MANIFEST", NodeType.MANIFEST_MERGE, label = "MANIFEST"),
                 params = emptyMap(),
                 upstreamIds = emptyList(),
-                inputFiles = { listOf(manifest) },
+                inputFiles = { listOf(mergedManifest) },
                 outputDir = null,
                 run = {},
                 restore = {},
@@ -178,19 +188,19 @@ class IncrementalBuildPipeline(
                 node = BuildNode("RESOURCE_LINK", NodeType.RES_LINK, label = "RESOURCE_LINK"),
                 params = baseParams,
                 upstreamIds = listOf("MANIFEST") + (if (hasRes) listOf("RESOURCE_COMPILE") else emptyList()),
-                inputFiles = { listOf(manifest) },
+                inputFiles = { listOf(mergedManifest) },
                 outputDir = linkOut,
                 run = {
                     val start = System.currentTimeMillis()
                     eventBus.publish(ResourceLinkStartedEvent(buildId))
                     val flatFiles = state["flatFiles"] as? List<Path> ?: emptyList()
-                    val bundle = resourceCompiler.link(flatFiles, manifest, linkOut, compileSdk)
+                    val bundle = resourceCompiler.link(flatFiles, mergedManifest, linkOut, compileSdk)
                     state["bundle"] = bundle
                     eventBus.publish(ResourceLinkFinishedEvent(buildId,
                         durationMs = System.currentTimeMillis() - start,
                         metadata = mapOf("configurations" to bundle.configurations.size)))
                 },
-                restore = { state["bundle"] = reconstructBundle(linkOut, manifest) },
+                restore = { state["bundle"] = reconstructBundle(linkOut, mergedManifest) },
                 outputReady = { fileSystem.exists(linkOut.resolve("resources/resources.arsc")) }
             )
 
