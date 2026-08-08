@@ -10,6 +10,7 @@ import com.hbe.api.event.*
 import com.hbe.api.exception.BuildException
 import com.hbe.core.BuildCancelledException
 import com.hbe.core.event.BuildProgressTracker
+import com.hbe.core.project.GradleMetadata
 import com.hbe.core.event.EventEmittingToolRunner
 import java.nio.file.Path
 
@@ -50,21 +51,26 @@ class DefaultBuildPipeline(
             token.throwIfCancelled()
 
             val projectRoot = findProjectRoot(Path.of(request.projectDir))
+            val namespace = GradleMetadata.findNamespace(projectRoot)
             val manifest = findManifest(projectRoot)
                 ?: throw BuildException(
                     message = "AndroidManifest.xml not found in $projectRoot",
                     errorCode = "MANIFEST_NOT_FOUND",
                     suggestion = "Ensure the project contains an AndroidManifest.xml"
                 )
-            val resDir = findResDir(projectRoot)
-            val compileSdk = request.compileSdk ?: resolveDefaultCompileSdk()
             val minSdk = request.minSdk ?: 24
             val variant = request.variant
+
+            val resDir = findResDir(projectRoot)
+            val compileSdk = request.compileSdk ?: resolveDefaultCompileSdk()
 
             val resolution = resolveSdk(request, config, compileSdk)
             val androidJar = resolution.androidJar
             val buildRoot = resolveBuildRoot(projectRoot, config)
             fileSystem.createDirectories(buildRoot)
+
+            // Inject namespace from build.gradle if manifest lacks package attribute
+            val finalManifest = prepareManifest(manifest, buildRoot, namespace)
 
             // 1. RESOURCE pipeline
             currentPhase = "RESOURCE_COMPILE"
@@ -87,7 +93,7 @@ class DefaultBuildPipeline(
             currentPhase = "RESOURCE_LINK"
             eventBus.publish(ResourceLinkStartedEvent(buildId))
             val (bundle, linkDuration) = timed {
-                resourceCompiler.link(flatFiles, manifest, linkOut, compileSdk)
+                resourceCompiler.link(flatFiles, finalManifest, linkOut, compileSdk)
             }
             eventBus.publish(ResourceLinkFinishedEvent(buildId,
                 durationMs = linkDuration, metadata = mapOf("configurations" to bundle.configurations.size)))
@@ -314,4 +320,23 @@ class DefaultBuildPipeline(
         val value = block()
         return value to (System.currentTimeMillis() - start)
     }
+
+    private fun prepareManifest(original: Path, buildRoot: Path, namespace: String?): Path {
+        if (namespace.isNullOrBlank()) return original
+        val text = String(fileSystem.readAllBytes(original))
+        val hasPackage = Regex("""package\s*=\s*["']""").containsMatchIn(text) ||
+            Regex("""<manifest[^>]*\spackage\s*=\s*""").containsMatchIn(text)
+        if (hasPackage) return original
+        val injected = text.replace(
+            Regex("""(<manifest\b[^>]*)(/?>)"""),
+            "$1 package=\"${namespace.escapeXml()}\"$2"
+        )
+        val target = buildRoot.resolve("manifest/AndroidManifest.xml")
+        fileSystem.createDirectories(target.parent)
+        fileSystem.writeBytes(target, injected.toByteArray())
+        return target
+    }
+
+    private fun String.escapeXml(): String =
+        replace("&", "&amp;").replace("\"", "&quot;").replace("<", "&lt;").replace(">", "&gt;")
 }

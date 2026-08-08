@@ -1,0 +1,2 @@
+rootProject.name = "TEST-06-multiple-aar"
+include(":app")

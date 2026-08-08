@@ -12,6 +12,7 @@ import com.hbe.api.exception.BuildException
 import com.hbe.core.BuildCancelledException
 import com.hbe.core.event.BuildProgressTracker
 import com.hbe.core.event.EventEmittingToolRunner
+import com.hbe.core.project.GradleMetadata
 import com.hbe.core.project.ManifestMerger
 import com.hbe.graph.BuildEdge
 import com.hbe.graph.BuildGraph
@@ -98,7 +99,8 @@ class IncrementalBuildPipeline(
             // aapt2 link and R generation use the right package. The project
             // source tree is never modified.
             val deps = projectDependencies
-            val manifest = prepareManifest(originalManifest, buildRoot, deps?.namespace)
+            val namespace = deps?.namespace ?: GradleMetadata.findNamespace(projectRoot)
+            val manifest = prepareManifest(originalManifest, buildRoot, namespace)
 
             // Merge library AAR manifests into the app manifest so that components
             // declared by dependencies (e.g. androidx.startup.InitializationProvider,
