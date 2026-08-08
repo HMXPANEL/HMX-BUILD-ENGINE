@@ -15,6 +15,7 @@ data class BuildRequest(
     val proguardRules: String? = null,
     val ramBudgetMb: Int = 1024,
     val compose: Boolean = false,
+    val kotlinVersion: String? = null,
     val outputApkPath: String? = null,
     val daemon: Boolean = false,
     val properties: Map<String, String> = emptyMap()

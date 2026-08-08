@@ -149,8 +149,20 @@ class ToolRunnerImpl(
             "kotlinc" to "kotlinc"
         )
         val mapped = known[tool] ?: tool
-        return sdkManager.findTool(mapped)
-            ?: processRunner.findTool(mapped)
+        // Check SDK tools first, then PATH
+        sdkManager.findTool(mapped)?.let { return it }
+        processRunner.findTool(mapped)?.let { return it }
+        // Check HMX-managed Kotlin compiler
+        if (mapped == "kotlinc") {
+            val hbeKotlin = Path.of(
+                System.getProperty("user.home") ?: ".",
+                ".hbe", "kotlin", "kotlinc", "bin", "kotlinc"
+            )
+            if (java.nio.file.Files.exists(hbeKotlin) && runCatching { java.nio.file.Files.isExecutable(hbeKotlin) }.getOrDefault(false)) {
+                return hbeKotlin
+            }
+        }
+        return null
     }
 
     private fun captureStream(input: java.io.InputStream, buffer: StringBuilder): Thread {

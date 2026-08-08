@@ -43,6 +43,14 @@ class SourceCompilerImpl(
             "kotlinVersion" to kotlinVersion
         ))
 
+        // Add Kotlin standard library to classpath (required for compilation)
+        val stdlib = KotlinToolchain(fileSystem, logger).findKotlinStdlib(kotlinVersion)
+        val classpathWithStdlib = if (stdlib != null) {
+            classpath.add(stdlib)
+        } else {
+            classpath
+        }
+
         if (useCompose) {
             logger.warn("Compose compiler plugin not bundled — compiling without it",
                 mapOf("suggestion" to "Add the Compose compiler plugin for composable code generation"))
@@ -50,7 +58,7 @@ class SourceCompilerImpl(
 
         val args = mutableListOf(
             "-d", outputDir.toString(),
-            "-cp", classpath.toJvmClasspath(),
+            "-cp", classpathWithStdlib.toJvmClasspath(),
             "-jvm-target", "17"
         )
         args.addAll(sources.map { it.toString() })

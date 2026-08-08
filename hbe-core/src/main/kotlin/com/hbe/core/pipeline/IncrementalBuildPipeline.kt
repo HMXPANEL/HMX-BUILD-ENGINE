@@ -241,9 +241,10 @@ class IncrementalBuildPipeline(
 
             if (kotlinSources.isNotEmpty()) {
                 sourceNodeIds += "KOTLIN_COMPILE"
+                val kotlinVersion = request.kotlinVersion ?: detectKotlinVersion(request)
                 tasks += TaskSpec(
                     node = BuildNode("KOTLIN_COMPILE", NodeType.SOURCE_COMPILE, label = "KOTLIN_COMPILE"),
-                    params = baseParams + mapOf("compose" to request.compose.toString(), "kotlinVersion" to "1.9.24"),
+                    params = baseParams + mapOf("compose" to request.compose.toString(), "kotlinVersion" to kotlinVersion),
                     upstreamIds = if (javaSources.isNotEmpty()) listOf("JAVA_COMPILE") else listOf("RESOURCE_LINK"),
                     inputFiles = { kotlinSources.toList() + dependencyClasspath },
                     outputDir = kotlinClasses,
@@ -252,7 +253,7 @@ class IncrementalBuildPipeline(
                         val classpath = if (javaSources.isNotEmpty()) baseClasspath.addOutputDir(javaClasses) else baseClasspath
                         eventBus.publish(KotlinCompilationStartedEvent(buildId,
                             metadata = mapOf("sourceCount" to kotlinSources.size)))
-                        val compiled = sourceCompiler.compileKotlin(kotlinSources, classpath, kotlinClasses, request.compose)
+                        val compiled = sourceCompiler.compileKotlin(kotlinSources, classpath, kotlinClasses, request.compose, kotlinVersion)
                         state["kotlinClasses"] = compiled
                         eventBus.publish(KotlinCompilationFinishedEvent(buildId,
                             durationMs = System.currentTimeMillis() - start,
@@ -747,6 +748,27 @@ class IncrementalBuildPipeline(
             .filter { isDirectory(it) }
             .flatMap { fileSystem.walkFiles(it, "*.$language") }
             .toSet()
+    }
+
+    private fun detectKotlinVersion(request: BuildRequest): String {
+        // Try to read kotlin version from project build files
+        val projectDir = Path.of(request.projectDir)
+        val appDir = projectDir.resolve("app")
+        val candidates = listOf(
+            appDir.resolve("build.gradle.kts"),
+            appDir.resolve("build.gradle"),
+            projectDir.resolve("build.gradle.kts"),
+            projectDir.resolve("build.gradle")
+        )
+        for (file in candidates) {
+            if (!fileSystem.exists(file)) continue
+            val text = runCatching { String(fileSystem.readAllBytes(file)) }.getOrDefault("")
+            // kotlin = "2.2.10" or kotlin("2.2.10")
+            val m = Regex("""kotlin\s*[=]\s*["']([^"']+)["']|kotlin\(["']([^"']+)["']\)""").find(text)
+            if (m != null) return m.groupValues[1].ifBlank { m.groupValues[2] }
+        }
+        // Default to installed compiler version
+        return "2.2.10"
     }
 
     private fun isDirectory(path: Path): Boolean {
