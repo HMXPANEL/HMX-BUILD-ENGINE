@@ -131,7 +131,13 @@ class ProjectResolver(
         nativeLibs: MutableList<Path>,
         libraryManifests: MutableList<Path>
     ) {
-        val local = dependencyManager.resolveAndDownload(coordinate, repositories)
+        val local = try {
+            dependencyManager.resolveAndDownload(coordinate, repositories)
+        } catch (e: Exception) {
+            // Skip deps that fail to download (e.g., BOMs, POM-only artifacts)
+            logger.warn("Skipping dependency", mapOf("coordinate" to coordinate.toNotation(), "error" to (e.message ?: "")))
+            return
+        }
         // Extract AAR if the downloaded file is an AAR, regardless of coordinate extension
         if (local.toString().endsWith(".aar")) {
             val contents = dependencyManager.extractAar(coordinate, local)

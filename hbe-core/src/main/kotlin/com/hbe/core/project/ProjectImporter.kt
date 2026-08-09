@@ -27,11 +27,23 @@ class ProjectImporter(
             root.resolve("settings.gradle")
         ))
 
+        // Parse version catalog if present
+        val catalogFile = listOf(
+            root.resolve("gradle/libs.versions.toml"),
+            root.resolve("gradle/libs.versions.toml")
+        ).firstOrNull { fileExists(it) }
+        val catalog = if (catalogFile != null) {
+            logger.info("Parsing version catalog", mapOf("file" to catalogFile.toString()))
+            VersionCatalogParser(fileSystem).parse(catalogFile)
+        } else {
+            VersionCatalogParser.Catalog()
+        }
+
         val modules = detectModules(settings, root)
         val repositories = detectRepositories(settings)
 
         val moduleModels = modules.map { modulePath ->
-            importModule(root, modulePath)
+            importModule(root, modulePath, catalog)
         }
 
         return ProjectModel(
@@ -81,7 +93,7 @@ class ProjectImporter(
         return sb.toString()
     }
 
-    private fun importModule(root: Path, modulePath: String): ModuleModel {
+    private fun importModule(root: Path, modulePath: String, catalog: VersionCatalogParser.Catalog = VersionCatalogParser.Catalog()): ModuleModel {
         val relative = modulePath.removePrefix(":").replace(":", "/")
         val dir = root.resolve(relative)
         val buildFile = listOf(dir.resolve("build.gradle.kts"), dir.resolve("build.gradle"))
@@ -101,7 +113,7 @@ class ProjectImporter(
         val buildTypes = extractBuildTypes(content)
         val buildFeatures = extractBuildFeatures(content)
         val compileOptions = extractCompileOptions(content)
-        val dependencies = extractDependencies(content)
+        val dependencies = extractDependencies(content, catalog)
         val proguardRules = extractProguardFiles(content).map { dir.resolve(it) }
 
         val srcMain = dir.resolve("src/main")
@@ -237,19 +249,73 @@ class ProjectImporter(
         return result
     }
 
-    private fun extractDependencies(content: String): List<String> {
+    private fun extractDependencies(content: String, catalog: VersionCatalogParser.Catalog = VersionCatalogParser.Catalog()): List<String> {
         val notations = mutableListOf<String>()
-        // configuration 'group:artifact:version'  /  configuration("group:artifact:version")
-        val configs = listOf("implementation", "api", "compileOnly", "runtimeOnly", "annotationProcessor", "kapt", "debugImplementation", "releaseImplementation")
+        val configs = listOf("implementation", "api", "compileOnly", "runtimeOnly", "annotationProcessor", "kapt", "debugImplementation", "releaseImplementation", "platform", "testImplementation", "androidTestImplementation")
         val configPattern = configs.joinToString("|")
-        val pattern = Pattern.compile(
+
+        // Form 1: configuration 'group:artifact:version' or configuration("group:artifact:version")
+        val directPattern = Pattern.compile(
             """\b(?:$configPattern)\s*\(?\s*['"]([a-zA-Z0-9_.-]+:[a-zA-Z0-9_.-]+:[0-9a-zA-Z._-]+(?:@[a-z]+)?)['"]"""
         )
-        val matcher = pattern.matcher(content)
-        while (matcher.find()) {
-            notations += matcher.group(1)
+        val directMatcher = directPattern.matcher(content)
+        while (directMatcher.find()) {
+            notations += directMatcher.group(1)
         }
+
+        // Form 2: configuration(libs.xxx.yyy) or configuration libs.xxx.yyy — version catalog references
+        // Handles both parenthesized and non-parenthesized forms
+        val catalogPattern = Pattern.compile(
+            """\b(?:$configPattern)\s*\(?\s*libs\.([a-zA-Z0-9_.-]+)\s*\)?"""
+        )
+        val catalogMatcher = catalogPattern.matcher(content)
+        while (catalogMatcher.find()) {
+            val alias = catalogMatcher.group(1)
+            resolveCatalogAlias(alias, catalog)?.let { notations += it }
+        }
+
+        // Form 3: platform(libs.xxx) for BOM — also resolve
+        val platformBomPattern = Pattern.compile(
+            """\bplatform\s*\(\s*libs\.([a-zA-Z0-9_.-]+)\s*\)"""
+        )
+        val platformMatcher = platformBomPattern.matcher(content)
+        while (platformMatcher.find()) {
+            val alias = platformMatcher.group(1)
+            resolveCatalogAlias(alias, catalog)?.let { notations += it }
+        }
+
         return notations.distinct()
+    }
+
+    /**
+     * Resolve a catalog alias (e.g., "androidx.core.ktx") to its Maven notation.
+     * Catalog aliases use dot-separated names that map to library entries.
+     */
+    private fun resolveCatalogAlias(alias: String, catalog: VersionCatalogParser.Catalog): String? {
+        // Direct match: alias matches a library key exactly
+        catalog.libraries[alias]?.let { return it.toNotation() }
+
+        // Try matching with normalized key (replace hyphens with dots and vice versa)
+        val normalizedAlias = alias.replace('-', '.')
+        catalog.libraries[normalizedAlias]?.let { return it.toNotation() }
+
+        // Try with hyphens
+        val hyphenAlias = alias.replace('.', '-')
+        catalog.libraries[hyphenAlias]?.let { return it.toNotation() }
+
+        // Fuzzy match: find a library whose key ends with the alias or a segment of it
+        val aliasParts = alias.split('.')
+        if (aliasParts.size > 1) {
+            val lastPart = aliasParts.last()
+            for ((key, ref) in catalog.libraries) {
+                if (key.endsWith(lastPart) || key.endsWith(alias.replace('.', '-'))) {
+                    return ref.toNotation()
+                }
+            }
+        }
+
+        logger.warn("Could not resolve catalog alias", mapOf("alias" to alias))
+        return null
     }
 
     private fun extractProguardFiles(content: String): List<String> {
