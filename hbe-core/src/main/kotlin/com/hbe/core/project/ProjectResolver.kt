@@ -51,7 +51,7 @@ class ProjectResolver(
         collectArtifacts(graph, repositories, classpath, libraryResDirs, libraryAssets, nativeLibs, libraryManifests)
 
         return ProjectDependencies(
-            classpath = classpath.distinct().sorted(),
+            classpath = deduplicateClasspath(classpath),
             libraryResDirs = libraryResDirs.distinct().sorted(),
             libraryAssets = libraryAssets.distinct().sorted(),
             nativeLibs = nativeLibs.distinct().sorted(),
@@ -132,7 +132,8 @@ class ProjectResolver(
         libraryManifests: MutableList<Path>
     ) {
         val local = dependencyManager.resolveAndDownload(coordinate, repositories)
-        if (coordinate.effectiveExtension == "aar") {
+        // Extract AAR if the downloaded file is an AAR, regardless of coordinate extension
+        if (local.toString().endsWith(".aar")) {
             val contents = dependencyManager.extractAar(coordinate, local)
             if (contents.classesJar != null && Files.exists(contents.classesJar)) classpath.add(contents.classesJar)
             val resDir = contents.resDir
@@ -160,4 +161,53 @@ class ProjectResolver(
             extension = parts.getOrNull(3)?.takeIf { it == "aar" }
         )
     }
+
+    /**
+     * Deduplicates the classpath by removing JARs that are subsets of other JARs.
+     * For example, collection-jvm is a subset of collection-ktx, so we keep only ktx.
+     * This prevents "type defined multiple times" errors during DEX generation.
+     */
+    private fun deduplicateClasspath(classpath: List<Path>): List<Path> {
+        // Group JARs by Maven group:artifact derived from cache directory structure
+        // Path format: ~/.hbe/dependencies/<group>/<artifact>/<version>/<file>
+        val byGroupArtifact = mutableMapOf<String, MutableList<Path>>()
+        for (path in classpath) {
+            val parts = path.toString().split("/")
+            // Find group:artifact from the path (2nd and 3rd from last)
+            // Strip packaging suffix (-jvm, -ktx, -base, -android) from artifact name
+            val rawArtifact = if (parts.size >= 3) parts[parts.size - 3] else path.fileName.toString()
+            val artifact = rawArtifact.replace(Regex("-(jvm|ktx|base|android)$"), "")
+            val group = if (parts.size >= 4) parts[parts.size - 4] else ""
+            val key = "$group/$artifact"
+            byGroupArtifact.getOrPut(key) { mutableListOf() }.add(path)
+        }
+
+        val result = mutableListOf<Path>()
+        for ((key, jars) in byGroupArtifact) {
+            if (jars.size == 1) {
+                result.add(jars.first())
+            } else {
+                // Multiple JARs for same group:artifact (e.g., collection-jvm + collection-ktx)
+                // Keep the "richest" variant: ktx > base > jvm > android > others
+                val ranked = jars.sortedBy { path ->
+                    val name = path.fileName.toString()
+                    when {
+                        name.contains("-ktx") -> 0
+                        name.contains("-base") -> 1
+                        name.contains("-jvm") -> 2
+                        name.contains("-android") -> 3
+                        else -> 4
+                    }
+                }
+                result.add(ranked.first())
+            }
+        }
+        return result.sorted()
+    }
 }
+
+    /**
+     * Deduplicates the classpath by removing JARs that are subsets of other JARs.
+     * For example, collection-jvm is a subset of collection-ktx, so we keep only ktx.
+     * This prevents "type defined multiple times" errors during DEX generation.
+     */

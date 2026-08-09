@@ -272,9 +272,9 @@ class HbeCliRunner(private val args: Array<String>) {
                     println("[HBE] Build failed: ${error.message}")
                     if (error.suggestion != null) println("Suggestion: ${error.suggestion}")
                     if (error.details.isNotEmpty()) {
-                        val shown = error.details.take(20)
+                        val shown = error.details.take(50)
                         shown.forEach { println("  $it") }
-                        if (error.details.size > 20) println("  ... and ${error.details.size - 20} more")
+                        if (error.details.size > 50) println("  ... and ${error.details.size - 50} more")
                     }
                 } else {
                     println("[HBE] Build failed with unknown error")

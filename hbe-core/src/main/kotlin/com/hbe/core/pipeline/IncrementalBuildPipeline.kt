@@ -241,10 +241,11 @@ class IncrementalBuildPipeline(
 
             if (kotlinSources.isNotEmpty()) {
                 sourceNodeIds += "KOTLIN_COMPILE"
+                val composeEnabled = request.compose || detectCompose(projectRoot)
                 val kotlinVersion = request.kotlinVersion ?: detectKotlinVersion(request)
                 tasks += TaskSpec(
                     node = BuildNode("KOTLIN_COMPILE", NodeType.SOURCE_COMPILE, label = "KOTLIN_COMPILE"),
-                    params = baseParams + mapOf("compose" to request.compose.toString(), "kotlinVersion" to kotlinVersion),
+                    params = baseParams + mapOf("compose" to composeEnabled.toString(), "kotlinVersion" to kotlinVersion),
                     upstreamIds = if (javaSources.isNotEmpty()) listOf("JAVA_COMPILE") else listOf("RESOURCE_LINK"),
                     inputFiles = { kotlinSources.toList() + dependencyClasspath },
                     outputDir = kotlinClasses,
@@ -253,7 +254,7 @@ class IncrementalBuildPipeline(
                         val classpath = if (javaSources.isNotEmpty()) baseClasspath.addOutputDir(javaClasses) else baseClasspath
                         eventBus.publish(KotlinCompilationStartedEvent(buildId,
                             metadata = mapOf("sourceCount" to kotlinSources.size)))
-                        val compiled = sourceCompiler.compileKotlin(kotlinSources, classpath, kotlinClasses, request.compose, kotlinVersion)
+                        val compiled = sourceCompiler.compileKotlin(kotlinSources, classpath, kotlinClasses, composeEnabled, kotlinVersion)
                         state["kotlinClasses"] = compiled
                         eventBus.publish(KotlinCompilationFinishedEvent(buildId,
                             durationMs = System.currentTimeMillis() - start,
@@ -751,6 +752,28 @@ class IncrementalBuildPipeline(
             .filter { isDirectory(it) }
             .flatMap { fileSystem.walkFiles(it, "*.$extension") }
             .toSet()
+    }
+
+    private fun detectCompose(projectRoot: Path): Boolean {
+        val candidates = listOf(
+            projectRoot.resolve("app/build.gradle.kts"),
+            projectRoot.resolve("app/build.gradle"),
+            projectRoot.resolve("build.gradle.kts"),
+            projectRoot.resolve("build.gradle")
+        )
+        for (file in candidates) {
+            if (!fileSystem.exists(file)) continue
+            val text = runCatching { String(fileSystem.readAllBytes(file)) }.getOrDefault("")
+
+            // buildFeatures { compose = true } or compose = true
+            if (Regex("""buildFeatures\s*\{[^}]*compose\s*=\s*true""", RegexOption.DOT_MATCHES_ALL).containsMatchIn(text)) return true
+            if (Regex("""compose\s*=\s*true""").containsMatchIn(text)) return true
+            // composeOptions block present
+            if (Regex("""composeOptions\s*\{""").containsMatchIn(text)) return true
+            // platform("androidx.compose:compose-bom:...") or compose-bom
+            if (Regex("""compose-bom""").containsMatchIn(text)) return true
+        }
+        return false
     }
 
     private fun detectKotlinVersion(request: BuildRequest): String {

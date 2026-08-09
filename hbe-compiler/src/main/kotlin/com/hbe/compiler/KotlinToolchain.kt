@@ -82,6 +82,32 @@ class KotlinToolchain(
         return null
     }
 
+    /**
+     * Find Compose runtime JAR in the Maven dependency cache.
+     * Compose runtime must be on the classpath for compilation.
+     */
+    fun findComposeRuntime(): Path? {
+        val cacheRoot = Path.of(System.getProperty("user.home") ?: ".", ".hbe", "dependencies")
+        if (!fileSystem.exists(cacheRoot)) return null
+        // Look for androidx compose runtime JAR in cache
+        val candidates = listOf(
+            "androidx/compose/runtime",
+            "androidx.compose.runtime"
+        )
+        for (rel in candidates) {
+            val dir = cacheRoot.resolve(rel)
+            if (!fileSystem.exists(dir)) continue
+            val jars = runCatching {
+                java.nio.file.Files.list(dir)
+                    .flatMap { verDir -> runCatching { java.nio.file.Files.list(verDir).filter { it.toString().endsWith(".jar") } }.getOrDefault(java.util.stream.Stream.empty()) }
+                    .filter { it.fileName.toString().startsWith("runtime-") || it.fileName.toString().startsWith("runtime-") }
+                    .findFirst().orElse(null)
+            }.getOrNull()
+            if (jars != null) return jars
+        }
+        return null
+    }
+
     private fun findInPath(tool: String): Path? {
         val pathEnv = System.getenv("PATH") ?: return null
         for (dir in pathEnv.split(":")) {

@@ -43,17 +43,22 @@ class SourceCompilerImpl(
             "kotlinVersion" to kotlinVersion
         ))
 
+        val toolchain = KotlinToolchain(fileSystem, logger)
+
         // Add Kotlin standard library to classpath (required for compilation)
-        val stdlib = KotlinToolchain(fileSystem, logger).findKotlinStdlib(kotlinVersion)
-        val classpathWithStdlib = if (stdlib != null) {
+        val stdlib = toolchain.findKotlinStdlib(kotlinVersion)
+        var classpathWithStdlib = if (stdlib != null) {
             classpath.add(stdlib)
         } else {
             classpath
         }
 
+        // Add Compose runtime to classpath if Compose is enabled
         if (useCompose) {
-            logger.warn("Compose compiler plugin not bundled — compiling without it",
-                mapOf("suggestion" to "Add the Compose compiler plugin for composable code generation"))
+            val composeRuntime = toolchain.findComposeRuntime()
+            if (composeRuntime != null) {
+                classpathWithStdlib = classpathWithStdlib.add(composeRuntime)
+            }
         }
 
         val args = mutableListOf(
@@ -61,7 +66,21 @@ class SourceCompilerImpl(
             "-cp", classpathWithStdlib.toJvmClasspath(),
             "-jvm-target", "17"
         )
+
+        // Enable Compose compiler plugin when requested
+        if (useCompose) {
+            val composePlugin = toolchain.findComposeCompilerPlugin(kotlinVersion)
+            if (composePlugin != null) {
+                args.add("-Xplugin=${composePlugin}")
+                logger.info("Compose compiler enabled", mapOf("plugin" to composePlugin.toString()))
+            } else {
+                logger.warn("Compose compiler plugin not found — composables may fail",
+                    mapOf("suggestion" to "Install Kotlin compiler with compose-compiler-plugin.jar"))
+            }
+        }
+
         args.addAll(sources.map { it.toString() })
+
 
         val result = toolRunner.run("kotlinc", args)
         if (!result.succeeded) {
