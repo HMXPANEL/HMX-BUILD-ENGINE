@@ -739,14 +739,17 @@ class IncrementalBuildPipeline(
             .sorted()
 
     private fun collectSources(root: Path, language: String): Set<Path> {
+        // Map language name to file extension (kotlin -> kt, java -> java)
+        val extension = if (language == "kotlin") "kt" else language
         val candidates = listOf(
+            root.resolve("src/main/java"),
             root.resolve("src/main/$language"),
             root.resolve("src/$language"),
             root.resolve(language)
-        )
+        ).distinct()
         return candidates
             .filter { isDirectory(it) }
-            .flatMap { fileSystem.walkFiles(it, "*.$language") }
+            .flatMap { fileSystem.walkFiles(it, "*.$extension") }
             .toSet()
     }
 

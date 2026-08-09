@@ -73,11 +73,15 @@ class OsFileSystem : FileSystem {
     override fun walkFiles(dir: Path, glob: String): List<Path> {
         if (!Files.isDirectory(dir)) return emptyList()
         val matcher = if (glob.isNotEmpty()) FileSystems.getDefault().getPathMatcher("glob:$glob") else null
-        return Files.walk(dir).use { stream ->
+        val result = Files.walk(dir).use { stream ->
             stream.filter { Files.isRegularFile(it) }
-                .filter { matcher?.matches(it.fileName) != false }
+                .filter { file ->
+                    val matches = matcher?.matches(file.fileName) != false
+                                        matches
+                }
                 .toList()
         }
+                return result
     }
 
     override fun lastModified(path: Path): Long {
