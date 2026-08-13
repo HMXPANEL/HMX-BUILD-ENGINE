@@ -190,23 +190,33 @@ class ProjectImporter(
     // ---- build.gradle parsing ----
 
     private fun extractPlugin(content: String): String? {
-        return Regex("""id\s*['"]([^'"]+)['"]""").find(content)?.groupValues?.get(1)
+        // id 'com.example' OR id("com.example") OR alias(libs.plugins.xxx)
+        val direct = Regex("""id\s*\(?\s*['"]([^'"]+)['"]""").find(content)?.groupValues?.get(1)
+        if (direct != null) return direct
+        // Plugin alias from catalog
+        val alias = Regex("""alias\s*\(\s*libs\.plugins\.([a-zA-Z0-9_.-]+)\s*\)""").find(content)?.groupValues?.get(1)
+        return alias
     }
 
     private fun extractQuoted(content: String, key: String): String? {
-        val pattern = Pattern.compile("""\b$key\s+['"]([^'"]+)['"]""")
+        // Groovy: key 'value' OR key "value"
+        // Kotlin DSL: key = "value" OR key = 'value'
+        val pattern = Pattern.compile("""\b$key\s*=?\s*['"]([^'"]+)['"]""")
         val matcher = pattern.matcher(content)
         return if (matcher.find()) matcher.group(1) else null
     }
 
     private fun extractInt(content: String, key: String): Int? {
-        val pattern = Pattern.compile("""\b$key\s+(\d+)""")
+        // Groovy: key 34 OR key = 34
+        val pattern = Pattern.compile("""\b$key\s*=?\s+(\d+)""")
         val matcher = pattern.matcher(content)
         return if (matcher.find()) matcher.group(1).toIntOrNull() else null
     }
 
     private fun extractSdkVersion(content: String, key: String): Int? {
-        val pattern = Pattern.compile("""\b$key(?:Version)?\s+(\d+)""")
+        // Groovy: minSdkVersion 24 OR minSdk 24
+        // Kotlin DSL: minSdk = 24
+        val pattern = Pattern.compile("""\b$key(?:Version)?\s*=?\s+(\d+)""")
         val matcher = pattern.matcher(content)
         return if (matcher.find()) matcher.group(1).toIntOrNull() else null
     }
@@ -229,7 +239,8 @@ class ProjectImporter(
         val result = mutableMapOf<String, Boolean>()
         val block = Regex("buildFeatures\\s*\\{(.*?)\\}", RegexOption.DOT_MATCHES_ALL).find(content)
         if (block != null) {
-            Regex("""\b(viewBinding|dataBinding|compose|buildConfig|aidl|renderScript)\s+(true|false)""")
+            // Groovy: compose true | Kotlin DSL: compose = true
+            Regex("""\b(viewBinding|dataBinding|compose|buildConfig|aidl|renderScript)\s*=?\s*(true|false)""")
                 .findAll(block.groupValues[1]).forEach { m ->
                     result[m.groupValues[1]] = m.groupValues[2] == "true"
                 }
