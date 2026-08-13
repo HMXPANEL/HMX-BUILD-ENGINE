@@ -1,11 +1,15 @@
 package com.hbe.core.pipeline
 
 import com.hbe.api.*
+import com.hbe.api.dto.BuildError
+import com.hbe.api.dto.BuildRequest
+import com.hbe.api.dto.BuildResult
 import com.hbe.core.BuildContextImpl
 import com.hbe.core.event.InMemoryBuildEventBus
 import com.hbe.core.project.ModuleModel
 import com.hbe.core.project.ProjectModel
 import com.hbe.core.project.ProjectResolver
+import com.hbe.scheduler.TaskScheduler
 import java.io.BufferedOutputStream
 import java.nio.file.Files
 import java.nio.file.Path
@@ -101,8 +105,8 @@ class MultiModuleBuilder(
         fileSystem.createDirectories(classesDir)
 
         val sources = mutableListOf<Path>()
-        lib.kotlinSourceDirs.forEach { sources += fileSystem.walkFiles(it, "*.kt") }
-        lib.javaSourceDirs.forEach { sources += fileSystem.walkFiles(it, "*.java") }
+        lib.kotlinSourceDirs.forEach { sources.addAll(fileSystem.walkFiles(it, "*.kt")) }
+        lib.javaSourceDirs.forEach { sources.addAll(fileSystem.walkFiles(it, "*.java")) }
 
         val resDir = lib.resDir
         val manifest = lib.manifest
@@ -115,7 +119,7 @@ class MultiModuleBuilder(
             val flats = resourceCompiler.compile(mergedRes, flatOut)
             rJava = resourceCompiler.link(flats, manifest, linkOut, compileSdk).rJava
         }
-        if (rJava != null) sources += rJava
+        if (rJava != null) sources.add(rJava)
 
         val classpath = Classpath(baseClasspath)
         if (sources.any { it.toString().endsWith(".kt") }) {
