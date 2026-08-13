@@ -245,7 +245,7 @@ class ResourceCompilerImplTest {
         val outDir = tempDir.resolve("merged")
         compiler.mergeResources(outDir, app, listOf(lib))
 
-        val merged = Files.readString(outDir.resolve("values.xml"))
+        val merged = Files.readString(outDir.resolve("values/values.xml"))
         assertTrue(merged.contains("xmlns:ns1=\"urn:oasis:names:tc:xliff:document:1.2\""),
             "xliff namespace must be declared. Got: $merged")
         assertTrue(merged.contains("app_text"), "app resource must be present")
@@ -273,7 +273,7 @@ class ResourceCompilerImplTest {
         val outDir = tempDir.resolve("merged-tools")
         compiler.mergeResources(outDir, app, listOf(lib))
 
-        val merged = Files.readString(outDir.resolve("values.xml"))
+        val merged = Files.readString(outDir.resolve("values/values.xml"))
         assertTrue(merged.contains("xmlns:tools=\"http://schemas.android.com/tools\""),
             "tools namespace must be declared. Got: $merged")
     }
@@ -297,7 +297,7 @@ class ResourceCompilerImplTest {
         val outDir = tempDir.resolve("merged-android")
         compiler.mergeResources(outDir, app, listOf(lib))
 
-        val merged = Files.readString(outDir.resolve("values.xml"))
+        val merged = Files.readString(outDir.resolve("values/values.xml"))
         assertTrue(merged.contains("xmlns:android=\"http://schemas.android.com/apk/res/android\""),
             "android namespace must be declared. Got: $merged")
     }
@@ -321,7 +321,7 @@ class ResourceCompilerImplTest {
         val outDir = tempDir.resolve("merged-custom")
         compiler.mergeResources(outDir, app, listOf(lib))
 
-        val merged = Files.readString(outDir.resolve("values.xml"))
+        val merged = Files.readString(outDir.resolve("values/values.xml"))
         assertTrue(merged.contains("xmlns:app=\"http://schemas.android.com/apk/res-auto\""),
             "custom app namespace must be declared. Got: $merged")
     }
@@ -346,7 +346,7 @@ class ResourceCompilerImplTest {
         val outDir = tempDir.resolve("merged-valid")
         compiler.mergeResources(outDir, app, listOf(lib))
 
-        val bytes = Files.readAllBytes(outDir.resolve("values.xml"))
+        val bytes = Files.readAllBytes(outDir.resolve("values/values.xml"))
         val parsed = javax.xml.parsers.DocumentBuilderFactory.newInstance().newDocumentBuilder()
             .parse(java.io.ByteArrayInputStream(bytes))
         assertNotNull(parsed.documentElement, "merged XML must re-parse without error")
@@ -372,7 +372,7 @@ class ResourceCompilerImplTest {
         val outDir = tempDir.resolve("merged-dedup")
         compiler.mergeResources(outDir, app, listOf(lib))
 
-        val merged = Files.readString(outDir.resolve("values.xml"))
+        val merged = Files.readString(outDir.resolve("values/values.xml"))
         assertTrue(merged.contains("app value"), "app value must win on conflict")
         assertFalse(merged.contains("library value"), "library value must be dropped on conflict")
     }
@@ -403,7 +403,7 @@ class ResourceCompilerImplTest {
         val outDir = tempDir.resolve("merged-collision")
         compiler.mergeResources(outDir, app, listOf(lib1, lib2))
 
-        val merged = Files.readString(outDir.resolve("values.xml"))
+        val merged = Files.readString(outDir.resolve("values/values.xml"))
         assertTrue(merged.contains("from_first"), "first lib resource must survive")
         assertTrue(merged.contains("from_second"), "second lib resource must survive")
         // Both URIs must be declared (one with a generated unique prefix)
