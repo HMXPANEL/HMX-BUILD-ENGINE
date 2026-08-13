@@ -149,7 +149,7 @@ class HbeCliRunner(private val args: Array<String>) {
             incremental = !clean
         )
 
-        val model = runCatching { projectImporter.import(projectDir) }.getOrNull()
+        val model = runCatching { projectImporter.importProject(java.nio.file.Path.of(projectDir)) }.getOrNull()
         val result = if (model != null && model.modules.size > 1) {
             println("[HBE] Multi-module project detected (${model.modules.size} modules), building in order: ${model.moduleOrder.joinToString(", ") { it.path }}")
             buildMultiModuleBuilder().build(
