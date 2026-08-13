@@ -111,6 +111,24 @@ class HbeCliRunner(private val args: Array<String>) {
         }
     }
 
+    private fun buildMultiModuleBuilder(): com.hbe.core.pipeline.MultiModuleBuilder {
+        return com.hbe.core.pipeline.MultiModuleBuilder(
+            sdkManager = sdkManager,
+            resourceCompiler = com.hbe.resources.ResourceCompilerImpl(sdkManager, fileSystem, toolRunner, logger),
+            sourceCompiler = com.hbe.compiler.SourceCompilerImpl(sdkManager, fileSystem, toolRunner, logger),
+            dexEngine = com.hbe.dex.DexEngineImpl(sdkManager, fileSystem, toolRunner, logger),
+            packager = com.hbe.packager.PackagerImpl(fileSystem, toolRunner, logger),
+            signer = com.hbe.signer.SignerImpl(fileSystem, toolRunner, logger),
+            toolRunner = toolRunner,
+            fileSystem = fileSystem,
+            logger = logger,
+            cacheManager = com.hbe.cache.CacheManagerImpl(fileSystem, java.nio.file.Path.of(System.getProperty("user.home") ?: ".", ".hbe", "cache")),
+            scheduler = com.hbe.scheduler.TaskScheduler(com.hbe.memory.MemoryManagerImpl(logger), logger),
+            memoryMonitor = com.hbe.memory.MemoryManagerImpl(logger),
+            resolver = projectResolver
+        )
+    }
+
     private fun cmdBuild(args: Array<String>) {
         val projectDir = args.firstOrNull() ?: "."
         val variant = extractOption(args, "--variant", "-v") ?: "debug"
@@ -131,7 +149,15 @@ class HbeCliRunner(private val args: Array<String>) {
             incremental = !clean
         )
 
-        val result = if (withDeps) {
+        val model = runCatching { projectImporter.import(projectDir) }.getOrNull()
+        val result = if (model != null && model.modules.size > 1) {
+            println("[HBE] Multi-module project detected (${model.modules.size} modules), building in order: ${model.moduleOrder.joinToString(", ") { it.path }}")
+            buildMultiModuleBuilder().build(
+                model,
+                request,
+                com.hbe.api.EngineConfig()
+            )
+        } else if (withDeps) {
             val deps = tryResolveDependencies(projectDir)
             buildIncrementalPipeline(deps).execute(
                 com.hbe.core.BuildContextImpl(

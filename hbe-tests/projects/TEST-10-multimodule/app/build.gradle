@@ -1,0 +1,17 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    compileSdk 34
+    namespace 'com.example.app'
+    defaultConfig {
+        applicationId 'com.example.app'
+        minSdk 24
+        targetSdk 34
+    }
+}
+
+dependencies {
+    implementation project(':core')
+}
