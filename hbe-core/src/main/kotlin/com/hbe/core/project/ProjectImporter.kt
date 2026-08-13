@@ -89,7 +89,12 @@ class ProjectImporter(
                 sb.appendLine("    dependencies:")
                 for (d in m.dependencies) sb.appendLine("      - $d")
             }
+            if (m.projectDependencies.isNotEmpty()) {
+                sb.appendLine("    project deps:")
+                for (d in m.projectDependencies) sb.appendLine("      - $d")
+            }
         }
+        sb.appendLine("Build order: ${model.moduleOrder.joinToString(" -> ") { it.path }}")
         return sb.toString()
     }
 
@@ -114,6 +119,7 @@ class ProjectImporter(
         val buildFeatures = extractBuildFeatures(content)
         val compileOptions = extractCompileOptions(content)
         val dependencies = extractDependencies(content, catalog)
+        val projectDependencies = extractProjectDependencies(content)
         val proguardRules = extractProguardFiles(content).map { dir.resolve(it) }
 
         val srcMain = dir.resolve("src/main")
@@ -142,6 +148,7 @@ class ProjectImporter(
             buildFeatures = buildFeatures,
             compileOptions = compileOptions,
             dependencies = dependencies,
+            projectDependencies = projectDependencies,
             manifest = manifest,
             resDir = resDir,
             assetsDir = assetsDir,
@@ -296,6 +303,27 @@ class ProjectImporter(
         }
 
         return notations.distinct()
+    }
+
+    /**
+     * Extract intra-project module dependencies declared as `project(":lib")`,
+     * `project(path = ":lib")`, `project(mapOf("path" to ":lib"))`, etc.
+     * Returns the referenced module paths (e.g. ":lib").
+     */
+    private fun extractProjectDependencies(content: String): List<String> {
+        val result = mutableListOf<String>()
+        val projectCall = Regex("""project\s*\(\s*([^)]*)""")
+        for (call in projectCall.findAll(content)) {
+            val inner = call.groupValues[1]
+            // path = ":lib" / path: ":lib" / ":lib" / ':lib' / "path" to ":lib"
+            val pathMatch = Regex("""(?:path\s*=?\s*)?["'](:?[a-zA-Z0-9_.-]+)["']""").find(inner)
+            if (pathMatch != null) {
+                val raw = pathMatch.groupValues[1]
+                val normalized = if (raw.startsWith(":")) raw else ":$raw"
+                if (normalized != ":") result += normalized
+            }
+        }
+        return result.distinct()
     }
 
     /**

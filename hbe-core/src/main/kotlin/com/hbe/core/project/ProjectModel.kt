@@ -15,6 +15,29 @@ data class ProjectModel(
     val localProperties: Map<String, String>
 ) {
     val applicationModule: ModuleModel? get() = modules.firstOrNull { it.applicationId != null || it.plugin?.contains("application") == true }
+
+    /**
+     * Modules in dependency order: a module always appears after every module
+     * it depends on via `project(":x")`. Libraries first, application module last.
+     * Modules with no project dependencies are emitted in declaration order.
+     */
+    val moduleOrder: List<ModuleModel> get() {
+        val byPath = modules.associateBy { it.path }
+        val visited = mutableSetOf<String>()
+        val result = mutableListOf<ModuleModel>()
+
+        fun visit(m: ModuleModel) {
+            if (m.path in visited) return
+            visited.add(m.path)
+            for (dep in m.projectDependencies) {
+                byPath[dep]?.let { visit(it) }
+            }
+            result.add(m)
+        }
+
+        for (m in modules) visit(m)
+        return result
+    }
 }
 
 data class ModuleModel(
@@ -32,6 +55,7 @@ data class ModuleModel(
     val buildFeatures: Map<String, Boolean> = emptyMap(),
     val compileOptions: Map<String, String> = emptyMap(),
     val dependencies: List<String> = emptyList(),
+    val projectDependencies: List<String> = emptyList(),
     val manifest: Path? = null,
     val resDir: Path? = null,
     val assetsDir: Path? = null,
