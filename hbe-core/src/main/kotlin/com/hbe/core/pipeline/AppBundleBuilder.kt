@@ -5,9 +5,9 @@ import com.hbe.api.dto.BuildError
 import com.hbe.api.dto.BuildRequest
 import com.hbe.api.dto.BuildResult
 import com.hbe.core.project.ModuleModel
+import com.hbe.core.project.ManifestMerger
 import com.hbe.core.project.ProjectModel
 import com.hbe.core.project.ProjectResolver
-import com.hbe.resources.ManifestMerger
 import java.io.BufferedOutputStream
 import java.nio.file.Files
 import java.nio.file.Path
@@ -59,9 +59,9 @@ class AppBundleBuilder(
         for (lib in model.moduleOrder) {
             if (lib.path == appModule.path || !lib.isAndroidModule) continue
             val built = buildLibrary(lib, model, compileSdk)
-            libJars += built.classesJar
-            built.resDir?.let { libRes += it }
-            built.manifest?.let { libManifests += it }
+            libJars.add(built.classesJar)
+            built.resDir?.let { libRes.add(it) }
+            built.manifest?.let { libManifests.add(it) }
         }
 
         val appDeps = resolver.resolve(model, appModule.path)
@@ -93,7 +93,7 @@ class AppBundleBuilder(
         val sources = mutableListOf<Path>()
         appModule.kotlinSourceDirs.forEach { sources.addAll(fileSystem.walkFiles(it, "*.kt")) }
         appModule.javaSourceDirs.forEach { sources.addAll(fileSystem.walkFiles(it, "*.java")) }
-        sources += bundle.rJava
+        sources.add(bundle.rJava)
 
         val classesDir = buildRoot.resolve("classes")
         fileSystem.createDirectories(classesDir)
@@ -169,9 +169,12 @@ class AppBundleBuilder(
         return BuiltLibrary(classesJar, lib.resDir, lib.manifest)
     }
 
-    private fun Path.walkFilesSafe(): Set<Path> =
-        if (Files.isDirectory(this)) Files.walk(this).filter { Files.isRegularFile(it) && it.toString().endsWith(".class") }.toSet()
-        else emptySet()
+    private fun Path.walkFilesSafe(): Set<Path> {
+        if (!Files.isDirectory(this)) return emptySet()
+        return Files.walk(this)
+            .filter { Files.isRegularFile(it) && it.toString().endsWith(".class") }
+            .collect(java.util.stream.Collectors.toSet())
+    }
 
     private fun copyDir(src: Path, dst: Path) {
         if (!Files.isDirectory(src)) return
