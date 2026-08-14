@@ -81,7 +81,6 @@ class AppBundleIntegrationTest {
         } catch (_: Exception) { }
         assertEquals(BuildResult.Status.SUCCESS, result.status, "error: ${result.error?.message}")
 
-        val aab = projectDir.resolve("build/hbe/app.aab")
         assertTrue(Files.exists(aab), "aab not produced at $aab")
 
         val entries = mutableSetOf<String>()
