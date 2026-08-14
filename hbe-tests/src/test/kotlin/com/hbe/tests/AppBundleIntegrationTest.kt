@@ -70,10 +70,15 @@ class AppBundleIntegrationTest {
         )
 
         val result = builder.build(model, BuildRequest(projectDir = projectDir.toString(), format = "aab"), EngineConfig())
+        val aab = projectDir.resolve("build/hbe/app.aab")
         result.error?.let { err ->
             println("AAB BUILD ERROR phase=${err.phase} code=${err.code} message=${err.message}")
-            err.details?.let { println("details=$it") }
+            err.details.let { println("details=$it") }
         }
+        println("AAB STATUS=${result.status} aabExists=${Files.exists(aab)}")
+        try {
+            Files.walk(projectDir.resolve("build/hbe")).forEach { p -> println("  fs: $p") }
+        } catch (_: Exception) { }
         assertEquals(BuildResult.Status.SUCCESS, result.status, "error: ${result.error?.message}")
 
         val aab = projectDir.resolve("build/hbe/app.aab")
