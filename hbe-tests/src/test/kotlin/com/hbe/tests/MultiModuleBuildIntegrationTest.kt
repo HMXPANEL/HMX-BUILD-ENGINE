@@ -75,8 +75,8 @@ class MultiModuleBuildIntegrationTest {
             fileSystem = fileSystem,
             logger = logger,
             cacheManager = CacheManagerImpl(fileSystem, tempDir.resolve("cache")),
-            scheduler = TaskScheduler(com.hbe.tests.NoopMemoryMonitor2(), logger),
-            memoryMonitor = com.hbe.tests.NoopMemoryMonitor2(),
+            scheduler = TaskScheduler(NoopMemoryMonitor2(), logger),
+            memoryMonitor = NoopMemoryMonitor2(),
             resolver = resolver
         )
 
