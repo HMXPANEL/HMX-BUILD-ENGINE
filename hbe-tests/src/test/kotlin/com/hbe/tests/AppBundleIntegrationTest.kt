@@ -70,6 +70,10 @@ class AppBundleIntegrationTest {
         )
 
         val result = builder.build(model, BuildRequest(projectDir = projectDir.toString(), format = "aab"), EngineConfig())
+        result.error?.let { err ->
+            println("AAB BUILD ERROR phase=${err.phase} code=${err.code} message=${err.message}")
+            err.details?.let { println("details=$it") }
+        }
         assertEquals(BuildResult.Status.SUCCESS, result.status, "error: ${result.error?.message}")
 
         val aab = projectDir.resolve("build/hbe/app.aab")

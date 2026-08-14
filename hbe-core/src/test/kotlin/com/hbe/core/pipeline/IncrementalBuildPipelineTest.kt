@@ -346,6 +346,21 @@ class IncrementalBuildPipelineTest {
         override fun mergeResources(outputDir: Path, appResDir: Path, libraryResDirs: List<Path>) {
             Files.createDirectories(outputDir)
         }
+        override fun linkProto(flatFiles: List<Path>, manifest: Path, outputDir: Path, compileSdk: Int, extraPackages: List<String>): ResourceBundle {
+            Files.createDirectories(outputDir.resolve("resources"))
+            Files.createDirectories(outputDir.resolve("gen/com/hbe/testapp"))
+            Files.write(outputDir.resolve("resources/resources.pb"), byteArrayOf(10, 11))
+            Files.write(outputDir.resolve("resources/AndroidManifest.xml"), "manifest".toByteArray())
+            Files.write(outputDir.resolve("gen/com/hbe/testapp/R.java"), "package com.hbe.testapp; class R {}".toByteArray())
+            val pb = outputDir.resolve("resources/resources.pb")
+            return ResourceBundle(
+                resourcesArsc = pb,
+                rJava = outputDir.resolve("gen/com/hbe/testapp/R.java"),
+                manifest = outputDir.resolve("resources/AndroidManifest.xml"),
+                configurations = setOf("default"),
+                resourcesPb = pb
+            )
+        }
     }
 
     private class FakeSourceCompiler : SourceCompiler {
@@ -403,6 +418,12 @@ class IncrementalBuildPipelineTest {
             val aligned = apkFile.parent.resolve("app-aligned.apk")
             Files.write(aligned, Files.readAllBytes(apkFile))
             return aligned
+        }
+        override fun packageAab(baseModuleDir: Path, outputAab: Path): Path {
+            packageCount++
+            Files.createDirectories(outputAab.parent ?: outputAab)
+            Files.write(outputAab, byteArrayOf(50, 51))
+            return outputAab
         }
     }
 
