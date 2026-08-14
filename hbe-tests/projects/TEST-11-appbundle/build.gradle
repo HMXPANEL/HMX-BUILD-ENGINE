@@ -1,0 +1,13 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    compileSdk 34
+    namespace 'com.hbe.testaab'
+    defaultConfig {
+        applicationId 'com.hbe.testaab'
+        minSdk 24
+        targetSdk 34
+    }
+}

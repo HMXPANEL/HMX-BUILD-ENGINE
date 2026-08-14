@@ -93,6 +93,37 @@ class PackagerImpl(
         return alignedFile
     }
 
+    override fun packageAab(baseModuleDir: Path, outputAab: Path): Path {
+        fileSystem.createDirectories(outputAab.parent ?: outputAab)
+        if (Files.exists(outputAab)) fileSystem.delete(outputAab)
+
+        ZipOutputStream(BufferedOutputStream(FileOutputStream(outputAab.toString()))).use { zos ->
+            zos.setLevel(Deflater.DEFAULT_COMPRESSION)
+
+            // BundleConfig.pb at the archive root (minimal empty configuration)
+            zos.putNextEntry(ZipEntry("BundleConfig.pb"))
+            zos.closeEntry()
+
+            if (Files.isDirectory(baseModuleDir)) {
+                Files.walk(baseModuleDir)
+                    .filter { Files.isRegularFile(it) }
+                    .forEach { file ->
+                        val relative = baseModuleDir.relativize(file).toString().replace('\\', '/')
+                        val entryName = "base/$relative"
+                        val method = if (relative.endsWith(".dex") || relative.endsWith("resources.pb")) {
+                            Deflater.NO_COMPRESSION
+                        } else {
+                            Deflater.DEFLATED
+                        }
+                        addZipEntry(zos, entryName, file, method)
+                    }
+            }
+        }
+
+        logger.info("AAB packaged", mapOf("path" to outputAab.toString(), "size" to fileSystem.size(outputAab).toString()))
+        return outputAab
+    }
+
     private fun addZipEntry(zos: ZipOutputStream, name: String, source: Path, method: Int) {
         if (!Files.isRegularFile(source)) {
             logger.warn("Skipping missing file for APK entry", mapOf("entry" to name))

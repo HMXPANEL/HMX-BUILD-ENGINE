@@ -129,6 +129,20 @@ class HbeCliRunner(private val args: Array<String>) {
         )
     }
 
+    private fun buildAppBundleBuilder(): com.hbe.core.pipeline.AppBundleBuilder {
+        return com.hbe.core.pipeline.AppBundleBuilder(
+            sdkManager = sdkManager,
+            resourceCompiler = com.hbe.resources.ResourceCompilerImpl(sdkManager, fileSystem, toolRunner, logger),
+            sourceCompiler = com.hbe.compiler.SourceCompilerImpl(sdkManager, fileSystem, toolRunner, logger),
+            dexEngine = com.hbe.dex.DexEngineImpl(sdkManager, fileSystem, toolRunner, logger),
+            packager = com.hbe.packager.PackagerImpl(fileSystem, toolRunner, logger),
+            toolRunner = toolRunner,
+            fileSystem = fileSystem,
+            logger = logger,
+            resolver = projectResolver
+        )
+    }
+
     private fun cmdBuild(args: Array<String>) {
         val projectDir = args.firstOrNull() ?: "."
         val variant = extractOption(args, "--variant", "-v") ?: "debug"
@@ -136,9 +150,10 @@ class HbeCliRunner(private val args: Array<String>) {
         val compose = args.contains("--compose")
         val json = args.contains("--json")
         val withDeps = args.contains("--deps")
+        val aab = args.contains("--aab")
         val ramBudget = extractOption(args, "--ram-budget")?.toIntOrNull() ?: 1024
 
-        println("[HBE] Building $projectDir ($variant)...")
+        println("[HBE] Building $projectDir ($variant)${if (aab) " as App Bundle" else ""}...")
 
         val request = BuildRequest(
             projectDir = projectDir,
@@ -146,11 +161,19 @@ class HbeCliRunner(private val args: Array<String>) {
             clean = clean,
             compose = compose,
             ramBudgetMb = ramBudget,
-            incremental = !clean
+            incremental = !clean,
+            format = if (aab) "aab" else "apk"
         )
 
         val model = runCatching { projectImporter.importProject(java.nio.file.Path.of(projectDir)) }.getOrNull()
-        val result = if (model != null && model.modules.size > 1) {
+        val result = if (aab) {
+            val m = model ?: projectImporter.importProject(java.nio.file.Path.of(projectDir))
+            buildAppBundleBuilder().build(
+                m,
+                request,
+                com.hbe.api.EngineConfig()
+            )
+        } else if (model != null && model.modules.size > 1) {
             println("[HBE] Multi-module project detected (${model.modules.size} modules), building in order: ${model.moduleOrder.joinToString(", ") { it.path }}")
             buildMultiModuleBuilder().build(
                 model,
@@ -171,7 +194,7 @@ class HbeCliRunner(private val args: Array<String>) {
         }
 
         if (json) {
-            println("""{"status":"${result.status}","apkPath":"${result.apkPath ?: ""}","buildId":"${result.buildId}"}""")
+            println("""{"status":"${result.status}","apkPath":"${result.apkPath ?: ""}","aabPath":"${result.aabPath ?: ""}","buildId":"${result.buildId}"}""")
         } else {
             printBuildResult(result)
         }
@@ -286,7 +309,9 @@ class HbeCliRunner(private val args: Array<String>) {
     private fun printBuildResult(result: BuildResult) {
         when (result.status) {
             BuildResult.Status.SUCCESS -> {
-                println("[HBE] Build complete: ${result.apkPath ?: "unknown"}")
+                val outPath = result.apkPath ?: result.aabPath ?: "unknown"
+                val label = if (result.aabPath != null && result.apkPath == null) "App Bundle" else "Build"
+                println("[HBE] $label complete: $outPath")
                 if (result.apkSizeBytes > 0) {
                     println("Size: ${result.apkSizeBytes / 1024} KB | Duration: ${result.totalDurationMs / 1000}s")
                 }

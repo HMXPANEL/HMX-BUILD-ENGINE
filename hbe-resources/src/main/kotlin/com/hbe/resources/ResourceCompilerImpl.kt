@@ -148,6 +148,92 @@ class ResourceCompilerImpl(
         )
     }
 
+    override fun linkProto(
+        flatFiles: List<Path>,
+        manifest: Path,
+        outputDir: Path,
+        compileSdk: Int,
+        extraPackages: List<String>
+    ): ResourceBundle {
+        if (flatFiles.isEmpty() && !fileSystem.exists(manifest)) {
+            throw ResourceException(
+                message = "No resources to link and no manifest found",
+                suggestion = "Ensure your project has a res/ directory and AndroidManifest.xml"
+            )
+        }
+
+        val manifestInfo = parseManifest(manifest)
+        val resolution = sdkManager.resolveSdk(compileSdk)
+        val androidJar = resolution.androidJar
+
+        fileSystem.createDirectories(outputDir)
+        val linkedApk = outputDir.resolve("linked.apk")
+        val genDir = outputDir.resolve("gen")
+        val symbolsFile = outputDir.resolve("symbols.txt")
+
+        val minSdk = manifestInfo.minSdk ?: 24
+        val targetSdk = manifestInfo.targetSdk ?: 34
+
+        val args = mutableListOf(
+            "link",
+            "--proto-format",
+            "--auto-add-overlay",
+            "--min-sdk-version", minSdk.toString(),
+            "--target-sdk-version", targetSdk.toString(),
+            "--manifest", manifest.toString(),
+            "--java", genDir.toString(),
+            "--output-text-symbols", symbolsFile.toString(),
+            "-I", androidJar.toString(),
+            "-o", linkedApk.toString()
+        )
+        for (pkg in extraPackages) {
+            args.add("--package-id")
+            args.add(pkg)
+        }
+        for (flat in flatFiles) {
+            args.add(flat.toString())
+        }
+
+        val result = toolRunner.run("aapt2", args)
+        if (!result.succeeded) {
+            throw ResourceException(
+                message = "aapt2 link (proto) failed",
+                suggestion = "Fix the manifest or resource references and rebuild",
+                details = parseAapt2Errors(result.stderr)
+            )
+        }
+
+        val extracted = outputDir.resolve("extracted")
+        fileSystem.createDirectories(extracted)
+        extractZip(linkedApk, extracted)
+
+        val resourcesPb = extracted.resolve("resources.pb")
+        val linkedManifest = extracted.resolve("AndroidManifest.xml")
+        val resDir = extracted.resolve("res")
+        val packageDir = manifestInfo.packageName
+            .split('.')
+            .filter { it.isNotBlank() }
+            .fold(genDir) { acc, segment -> acc.resolve(segment) }
+        val rJava = packageDir.resolve("R.java")
+
+        if (!Files.isRegularFile(resourcesPb)) {
+            throw ResourceException(
+                message = "aapt2 link (proto) did not produce resources.pb",
+                suggestion = "This is a bug — please report it with the aapt2 output"
+            )
+        }
+
+        return ResourceBundle(
+            resourcesArsc = resourcesPb,
+            rJava = rJava,
+            compiledResDirectories = if (Files.isDirectory(resDir)) listOf(resDir) else emptyList(),
+            manifest = linkedManifest,
+            configurations = setOf("default") + discoverResources(resDir).directories.keys,
+            resourceIds = parseSymbols(symbolsFile),
+            resourcesPb = resourcesPb
+        )
+    }
+
     override fun mergeManifests(manifests: List<ManifestSource>, outputDir: Path): Path {
         if (manifests.isEmpty()) {
             throw ResourceException("No manifests to merge")

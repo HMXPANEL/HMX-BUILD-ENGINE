@@ -12,6 +12,13 @@ interface ResourceCompiler {
         compileSdk: Int,
         extraPackages: List<String> = emptyList()
     ): ResourceBundle
+    fun linkProto(
+        flatFiles: List<Path>,
+        manifest: Path,
+        outputDir: Path,
+        compileSdk: Int,
+        extraPackages: List<String> = emptyList()
+    ): ResourceBundle
     fun mergeManifests(manifests: List<ManifestSource>, outputDir: Path): Path
 }
 
@@ -21,7 +28,8 @@ data class ResourceBundle(
     val compiledResDirectories: List<Path> = emptyList(),
     val manifest: Path,
     val configurations: Set<String> = emptySet(),
-    val resourceIds: Map<String, Int> = emptyMap()
+    val resourceIds: Map<String, Int> = emptyMap(),
+    val resourcesPb: Path? = null
 )
 
 data class ManifestSource(

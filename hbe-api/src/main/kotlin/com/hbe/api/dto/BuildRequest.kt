@@ -18,5 +18,6 @@ data class BuildRequest(
     val kotlinVersion: String? = null,
     val outputApkPath: String? = null,
     val daemon: Boolean = false,
+    val format: String = "apk",
     val properties: Map<String, String> = emptyMap()
 )

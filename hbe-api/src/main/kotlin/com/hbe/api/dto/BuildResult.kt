@@ -3,6 +3,7 @@ package com.hbe.api.dto
 data class BuildResult(
     val status: Status,
     val apkPath: String? = null,
+    val aabPath: String? = null,
     val apkSizeBytes: Long = 0,
     val phases: List<PhaseTiming> = emptyList(),
     val totalDurationMs: Long = 0,
