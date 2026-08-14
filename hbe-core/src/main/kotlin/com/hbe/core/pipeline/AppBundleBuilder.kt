@@ -67,14 +67,10 @@ class AppBundleBuilder(
         val appDeps = resolver.resolve(model, appModule.path)
         val appRequest = request.copy(projectDir = appModule.dir.toString())
         val projectRoot = Path.of(appRequest.projectDir)
-        println("DIAG projectRoot=$projectRoot appModule.dir=${appModule.dir} appModule.path=${appModule.path} moduleOrder=${model.moduleOrder.map { it.path }}")
         val manifest = findManifest(projectRoot)
-        println("DIAG manifest=$manifest exists=${manifest?.let { fileSystem.exists(it) }}")
-        if (manifest == null) {
-            return BuildResult(status = BuildResult.Status.FAILURE,
+            ?: return BuildResult(status = BuildResult.Status.FAILURE,
                 error = BuildError(phase = "SETUP", code = "NO_MANIFEST", message = "No AndroidManifest.xml found"),
                 buildId = buildId)
-        }
         val resDir = findResDir(projectRoot)
         val applicationId = appModule.applicationId ?: appModule.namespace ?: projectRoot.fileName.toString()
 
@@ -92,7 +88,6 @@ class AppBundleBuilder(
         resourceCompiler.mergeResources(mergedRes, resDir ?: mergedRes, allLibRes)
         val flats = resourceCompiler.compile(mergedRes, flatOut)
         val bundle = resourceCompiler.linkProto(flats, mergedManifest, linkOut, compileSdk)
-        println("DIAG linkProto rJava=${bundle.rJava} resourcesPb=${bundle.resourcesPb} manifest=${bundle.manifest} resDirs=${bundle.compiledResDirectories}")
 
         val classpath = Classpath(listOf(androidJar) + appDeps.classpath + libJars)
         val sources = mutableListOf<Path>()
@@ -117,7 +112,6 @@ class AppBundleBuilder(
             libraryJars = listOf(androidJar),
             isRelease = request.variant == "release"
         ))
-        println("DIAG dexFiles=${dexOutput.dexFiles} classesDirHasClasses=${classesDir.walkFilesSafe()}")
         val dexFile = dexOutput.dexFiles.firstOrNull()
             ?: return BuildResult(status = BuildResult.Status.FAILURE,
                 error = BuildError(phase = "DEX", code = "NO_DEX", message = "No dex file produced"),

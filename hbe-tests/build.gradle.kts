@@ -30,8 +30,4 @@ dependencies {
 
 tasks.test {
     useJUnitPlatform()
-    testLogging {
-        showStandardStreams = true
-        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
-    }
 }
