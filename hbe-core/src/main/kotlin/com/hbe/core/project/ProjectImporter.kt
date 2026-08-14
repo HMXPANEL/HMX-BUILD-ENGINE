@@ -164,7 +164,7 @@ class ProjectImporter(
         if (settings.isNullOrBlank()) {
             return if (isDirectory(root.resolve("src"))) listOf(":root") else emptyList()
         }
-        val includes = Regex("""include\s*\(?\s*([^)]*)\)""", RegexOption.DOT_MATCHES_ALL).findAll(settings)
+        val includes = Regex("""include\s*\(?\s*([^)\n]*)""", RegexOption.DOT_MATCHES_ALL).findAll(settings)
         val modules = mutableListOf<String>()
         for (match in includes) {
             Regex("""['"]([^'"]+)['"]""").findAll(match.groupValues[1]).forEach { m ->
