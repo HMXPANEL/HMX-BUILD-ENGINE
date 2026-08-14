@@ -51,7 +51,7 @@ class MultiModuleBuildIntegrationTest {
 
         val projectDir = copyProject()
         val importer = ProjectImporter(fileSystem, logger)
-        val model = importer.import(projectDir)
+        val model = importer.importProject(projectDir)
 
         assertEquals(2, model.modules.size, "expected :app and :core modules")
         assertEquals(listOf(":core", ":app"), model.moduleOrder.map { it.path }, "libraries must build before the application")
